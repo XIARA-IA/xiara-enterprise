@@ -814,26 +814,59 @@ function seed(){
  audit:[{id:uid('AUD'),empresa_id:c.id,at:now(),user:'Sistema',txt:'XIARA V4.8.6 inicializada'}]};
 }
 function ensure(){['notificaciones','laborales','finanzas','compliance','rrhh','documentos','socios','jurisprudencia','plantillas','facturas','modelos','casosJudiciales','conciliaciones','centrosTrabajo','cargasSociales','cartasPago','audit'].forEach(k=>db[k]=db[k]||[]); if(!db.centrosTrabajo.length){db.centrosTrabajo=[{id:'CT-MAL',empresa_id:activeCompany,nombre:'Málaga',ccc:'CCC-MALAGA',territorio:'Península',activo:true},{id:'CT-IB',empresa_id:activeCompany,nombre:'Islas Baleares',ccc:'CCC-BALEARES',territorio:'Baleares',activo:true}]}}
+function xiaraSlimForLocalStorage(value){
+ try{
+  return JSON.parse(JSON.stringify(value,function(k,v){
+   if(typeof v==='string' && v.length>120000){
+    if(v.startsWith('data:') || v.startsWith('JVBER') || v.startsWith('/9j/') || v.startsWith('iVBOR')) return '[ARCHIVO_OMITIDO_LOCAL]';
+    return v.slice(0,120000)+'...[RECORTADO_LOCAL]';
+   }
+   if(k && /base64|b64|dataUrl|dataURL|fileData|contenido|pdfData|imgData|imagenBase64|firmaBase64|selloBase64/i.test(k)){
+    if(typeof v==='string' && v.length>3000) return '[ARCHIVO_OMITIDO_LOCAL]';
+   }
+   return v;
+  }));
+ }catch(e){return {activeCompany:activeCompany,activeUser:activeUser,error:'No se pudo crear copia ligera'};}
+}
+function xiaraLocalSetSafe(key,value){
+ try{localStorage.setItem(key,value);return true;}
+ catch(e){
+  if(e && (e.name==='QuotaExceededError' || e.code===22)){
+   try{
+    localStorage.removeItem(LS+'_backup_auto');
+    localStorage.removeItem(LS+'_backup_prev');
+    localStorage.removeItem(LS+'_vacaciones_backup');
+    localStorage.removeItem(LS+'_protected_rrhh_snapshot');
+    localStorage.removeItem('xiara_v34_estable_cache_backup_auto');
+    localStorage.removeItem('xiara_v34_estable_cache_backup_prev');
+   }catch(cleanErr){}
+   try{localStorage.setItem(key,value);return true;}catch(e2){console.warn('XIARA: localStorage sin espacio para '+key,e2);return false;}
+  }
+  console.warn('XIARA: no se pudo guardar '+key,e);return false;
+ }
+}
 function localSave(){
  db.activeCompany=activeCompany;
  db.activeUser=activeUser;
- try{
-  const snap=JSON.stringify(xiaraProtectedSnapshot(db));
-  localStorage.setItem(LS+'_protected_rrhh_snapshot',snap);
-  localStorage.setItem(LS+'_vacaciones_backup',snap);
- }catch(e){console.warn('XIARA: no se pudo crear snapshot protegido',e);}
- const payload=JSON.stringify(db);
- try{
-  const current=localStorage.getItem(LS);
-  if(current) localStorage.setItem(LS+'_backup_prev', current);
-  localStorage.setItem(LS,payload);
-  localStorage.setItem(LS+'_backup_auto',payload);
-  localStorage.setItem('xiara_ultimo_guardado', new Date().toISOString());
- }catch(e){
-  console.warn('XIARA: no se pudo guardar en localStorage principal',e);
-  try{localStorage.setItem(LS+'_backup_auto',payload);}catch(err){console.warn(err);}
+ const meta=JSON.stringify({activeCompany,activeUser,updatedAt:new Date().toISOString(),version:'6.0-local-safe'});
+ let payload='';
+ try{ payload=JSON.stringify(db); }catch(e){ payload=''; console.warn('XIARA: db no serializable',e); }
+ const maxLocalBytes=4200000;
+ if(payload && payload.length<maxLocalBytes){
+  try{
+   const current=localStorage.getItem(LS);
+   if(current && current.length<maxLocalBytes) xiaraLocalSetSafe(LS+'_backup_prev', current);
+  }catch(e){}
+  xiaraLocalSetSafe(LS,payload);
+ }else{
+  const slim=JSON.stringify(xiaraSlimForLocalStorage(db));
+  xiaraLocalSetSafe(LS, slim);
+  console.warn('XIARA: base local demasiado grande. Se guardó copia ligera; los archivos grandes quedan en Firebase/Storage. Tamaño:', payload.length);
  }
+ xiaraLocalSetSafe('xiara_ultimo_guardado', new Date().toISOString());
+ xiaraLocalSetSafe(LS+'_meta', meta);
 }
+
 async function saveCloud(col,obj){ensure();localSave(); if(cloud) await setDoc(doc(fs,col,obj.id), {...obj,updatedAt:serverTimestamp()},{merge:true}); renderAll();}
 async function audit(txt){const a={id:uid('AUD'),empresa_id:activeCompany,at:now(),user:user().nombre,txt};db.audit.unshift(a); if(cloud) await setDoc(doc(fs,'audit',a.id),a); localSave();}
 function showApp(){document.getElementById('login').classList.add('hidden');document.getElementById('app').classList.remove('hidden');renderAll();}
