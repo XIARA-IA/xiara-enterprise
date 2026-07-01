@@ -2732,6 +2732,27 @@ window.printPayrollDoc=function(empId, nomId){
   Prohibida su reproducción, distribución, modificación, cesión, venta o uso no autorizado.
 </footer>
 
+
+<script src="js/modules/firma/firma.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    if (window.XIARA) {
+
+        XIARA.startAllModules();
+
+        console.log("✔ XIARA Core iniciado correctamente");
+
+    } else {
+
+        console.warn("⚠ XIARA Core no encontrado");
+
+    }
+
+});
+</script>
+
 </body></html>`);
  w.document.close(); w.focus(); w.print();
 }
@@ -6102,5 +6123,31 @@ document.head.appendChild(xiaraStyleRiesgos501);
   setTimeout(()=>{try{ if(typeof renderAll==='function') renderAll(); }catch(e){console.warn(e);}},300);
 })();
 </script>
+
+<!-- ========================================================= -->
+<!-- XIARA V6 ENTERPRISE CORE -->
+<!-- ========================================================= -->
+
+<script src="js/core/xiara-core.js"></script>
+<script src="js/modules/firma/firma.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    if (window.XIARA) {
+
+        XIARA.startAllModules();
+
+        console.log("✔ XIARA Core iniciado correctamente");
+
+    } else {
+
+        console.warn("⚠ XIARA Core no encontrado");
+
+    }
+
+});
+</script>
+
 </body>
 </html>
