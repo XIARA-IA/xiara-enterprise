@@ -1022,6 +1022,16 @@ function modal(html){document.getElementById('modalBox').innerHTML=html;document
 function selectors(){document.getElementById('companySel').innerHTML=db.empresas.map(e=>`<option value="${e.id}" ${e.id===activeCompany?'selected':''}>${e.nombre}</option>`).join('');document.getElementById('userSel').innerHTML=byCo(db.usuarios).map(u=>`<option value="${u.id}" ${u.id===activeUser?'selected':''}>${u.nombre} — ${u.rol}</option>`).join('');document.getElementById('sessionName').textContent=user().nombre;document.getElementById('sessionRole').textContent=user().rol}
 window.changeCompany=()=>{activeCompany=val('companySel');activeUser=byCo(db.usuarios)[0]?.id||activeUser;localSave();renderAll()}
 window.changeUser=()=>{activeUser=val('userSel');localSave();renderAll()}
+
+window.addEventListener('beforeunload',()=>{
+ try{
+   xiaraSnapshotUnsubs.forEach(unsub=>{
+     try{ if(typeof unsub==='function') unsub(); }catch(_e){}
+   });
+   xiaraSnapshotUnsubs.clear();
+ }catch(_e){}
+});
+
 document.getElementById('nav').onclick=e=>{const b=e.target.closest('button');if(!b)return;const sectionId=b.dataset.s;document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));document.getElementById(sectionId).classList.add('active');xiaraEnsureSectionSnapshots(sectionId);renderAll()}
 
 function dash(){const n=byCo(db.notificaciones),l=byCo(db.laborales),f=byCo(db.finanzas)[0]||{},iva=(f.ivaRepercutido||0)-(f.ivaSoportado||0);document.getElementById('dashboard').innerHTML=header('Resumen ejecutivo','V4.8.6 estable · Legal, fiscal, RRHH y documental corregidos.',`<button onclick="syncDemo()">Sincronizar datos</button>`)+`<div class="grid five"><div class="card"><div class="muted">Notificaciones</div><div class="metric">${n.length}</div></div><div class="card"><div class="muted">Laborales</div><div class="metric">${l.length}</div></div><div class="card"><div class="muted">Facturas</div><div class="metric">${byCo(db.facturas).length}</div></div><div class="card"><div class="muted">IVA</div><div class="metric">${money(iva)}</div></div><div class="card"><div class="muted">Modelos</div><div class="metric">${byCo(db.modelos).length}</div></div></div><div class="card" style="margin-top:16px"><h3>Actividad</h3>${byCo(db.audit).slice(0,8).map(a=>`<div class="msg"><b>${a.user}</b>: ${a.txt}<br><span class="muted">${a.at}</span></div>`).join('')}</div>`}
@@ -1276,6 +1286,110 @@ window.xiaraOpenV6EntityDocs=async function(modulo,entidadTipo,entidadId,titulo)
  await xiaraRefreshV6EntityDocs(modulo,entidadTipo,entidadId);
 }
 
+
+const XIARA_V6_MAX_FILE_SIZE=50*1024*1024;
+const XIARA_V6_ALLOWED_EXTENSIONS=new Set([
+ 'pdf','jpg','jpeg','png','doc','docx','xls','xlsx','csv','txt'
+]);
+
+window.xiaraValidateV6File=function(file){
+ if(!file) return {ok:false,message:'No se ha seleccionado ningún archivo.'};
+
+ if(file.size>XIARA_V6_MAX_FILE_SIZE){
+   return {ok:false,message:'El archivo supera el límite V6 de 50 MB.'};
+ }
+
+ const name=String(file.name||'');
+ const ext=(name.split('.').pop()||'').toLowerCase();
+
+ if(!XIARA_V6_ALLOWED_EXTENSIONS.has(ext)){
+   return {ok:false,message:'Tipo de archivo no permitido en V6: .'+(ext||'?')};
+ }
+
+ if(!activeCompany){
+   return {ok:false,message:'No hay una empresa activa seleccionada.'};
+ }
+
+ if(cloud && (!auth || !auth.currentUser)){
+   return {ok:false,message:'No hay una sesión Firebase autenticada.'};
+ }
+
+ return {ok:true};
+}
+
+window.xiaraV6Preflight=async function(){
+ const box=document.getElementById('xiaraV6PreflightStatus');
+ if(!box) return;
+
+ box.innerHTML='<span class="muted">Ejecutando preflight V6...</span>';
+
+ try{
+   const checks=[];
+
+   const dbHealth=(window.XIARA&&XIARA.dbService&&XIARA.dbService.healthCheck)
+     ? await XIARA.dbService.healthCheck()
+     : {ok:false};
+
+   checks.push(['Firestore',!!dbHealth.ok]);
+
+   const storageHealth=(window.XIARA&&XIARA.storageService&&XIARA.storageService.healthCheck)
+     ? await XIARA.storageService.healthCheck()
+     : {ok:false};
+
+   checks.push(['Storage',!!storageHealth.ok]);
+   checks.push(['Storage seguro por defecto',!!(window.XIARA&&XIARA.storageService&&XIARA.storageService.enabled===false)]);
+
+   const docsHealth=(window.XIARA&&XIARA.documents&&XIARA.documents.healthCheck)
+     ? await XIARA.documents.healthCheck()
+     : {ok:false};
+
+   checks.push(['Servicio documental',!!docsHealth.ok]);
+   checks.push(['Empresa activa',!!activeCompany]);
+
+   const signedIn=!!(auth&&auth.currentUser&&auth.currentUser.uid);
+   checks.push(['Firebase Auth',signedIn]);
+
+   let accessOk=false;
+   let accessInfo=null;
+
+   if(signedIn && window.XIARA&&XIARA.dbService&&typeof XIARA.dbService.get==='function'){
+     try{
+       accessInfo=await XIARA.dbService.get('access',auth.currentUser.uid);
+       accessOk=!!(
+         accessInfo &&
+         accessInfo.activo===true &&
+         Array.isArray(accessInfo.empresas) &&
+         accessInfo.empresas.includes(activeCompany)
+       );
+     }catch(_e){}
+   }
+
+   checks.push(['Access UID / empresa',accessOk]);
+
+   const allOk=checks.every(x=>x[1]);
+
+   window.XIARA_RELEASE_CANDIDATE={
+     version:'6.0.0-enterprise-rc',
+     checkedAt:new Date().toISOString(),
+     ok:allOk,
+     empresaId:activeCompany||null,
+     uid:signedIn?auth.currentUser.uid:null,
+     activeListeners:window.XIARA_PERF?.activeSnapshotListeners||0
+   };
+
+   box.innerHTML=
+     `<div class="${allOk?'cloud-ok':'warn-box'}">
+       <b>${allOk?'PRE-FLIGHT V6 APROBADO':'PRE-FLIGHT V6 REQUIERE REVISIÓN'}</b><br>
+       ${checks.map(([name,ok])=>`${ok?'✅':'❌'} ${escHtml(name)}`).join('<br>')}
+       <br><span class="muted">Storage queda bloqueado por defecto fuera de cada subida controlada.</span>
+     </div>`;
+
+ }catch(e){
+   console.error('XIARA V6 preflight',e);
+   box.innerHTML='<div class="warn-box">Error de preflight V6: '+escHtml(e.message||String(e))+'</div>';
+ }
+}
+
 window.xiaraUploadV6EntityDocument=async function(modulo,entidadTipo,entidadId){
  const preview=document.getElementById('xiaraV6CommonUploadPreview');
  const input=document.getElementById('xiaraV6CommonFile');
@@ -1302,6 +1416,13 @@ window.xiaraUploadV6EntityDocument=async function(modulo,entidadTipo,entidadId){
    }
 
    const file=input.files[0];
+
+   const validation=xiaraValidateV6File(file);
+   if(!validation.ok){
+     preview.innerHTML='<span style="color:#b91c1c;font-weight:800">'+escHtml(validation.message)+'</span>';
+     return;
+   }
+
    const prepared=XIARA.documents.prepareUpload({
      empresaId:activeCompany,
      modulo,
@@ -1415,7 +1536,7 @@ function renderMods(){
  const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas y juntas.',`<button onclick="openSocio()">+ Socio</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('socios','socio','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
  document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button>`)}</div>`;
  document.getElementById('usuarios').innerHTML=header('Usuarios y roles','Usuarios vinculados solo a la empresa activa.',`<button onclick="openUser()">+ Usuario</button>`)+`<div class="card">${table(byCo(db.usuarios),[['Nombre','nombre'],['Rol','rol'],['Email','email']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('usuarios','usuario','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('usuarios','${x.id}')">Eliminar</button>`)}</div>`;
- document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir Docs V6</button></div></div>`;
+ document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><button class="secondary" onclick="xiaraV6Preflight()">Preflight deploy V6</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div><div id="xiaraV6PreflightStatus" class="muted" style="margin-top:10px">Preflight pendiente.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir Docs V6</button></div></div>`;
 }
 
 function legalFolderTemplate(){
@@ -1737,6 +1858,12 @@ window.xiaraUploadV6LegalDocument=async function(id){
    }
 
    const file=input.files[0];
+
+   const validation=xiaraValidateV6File(file);
+   if(!validation.ok){
+     preview.innerHTML='<span style="color:#b91c1c;font-weight:800">'+escHtml(validation.message)+'</span>';
+     return;
+   }
 
    const prepared=XIARA.documents.prepareUpload({
      empresaId:activeCompany,
@@ -4265,6 +4392,12 @@ window.xiaraUploadV6FinanceDocument=async function(id){
    }
 
    const file=input.files[0];
+
+   const validation=xiaraValidateV6File(file);
+   if(!validation.ok){
+     preview.innerHTML='<span style="color:#b91c1c;font-weight:800">'+escHtml(validation.message)+'</span>';
+     return;
+   }
 
    const prepared=XIARA.documents.prepareUpload({
      empresaId:activeCompany,
