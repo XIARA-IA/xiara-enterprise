@@ -1431,6 +1431,41 @@ window.xiaraValidateV6File=function(file){
  return {ok:true};
 }
 
+
+window.xiaraAuditDocumentButtons=function(){
+ const issues=[];
+ const fileInputs=[...document.querySelectorAll('input[type="file"]')];
+ const buttons=[...document.querySelectorAll('button[onclick]')];
+ const fileWords=/subir|guardar|adjuntar|importar|escan|ocr|pdf|archivo|foto|firma|sello|document/i;
+ const relevant=buttons.filter(b=>fileWords.test((b.textContent||'')+' '+(b.getAttribute('onclick')||'')));
+ relevant.forEach(btn=>{
+   const expr=btn.getAttribute('onclick')||'';
+   const names=[...expr.matchAll(/([A-Za-z_$][\w$]*)\s*\(/g)].map(m=>m[1])
+     .filter(n=>![
+       'if','confirm','alert','prompt','String','Number','Date','Math',
+       'getElementById','querySelector','querySelectorAll',
+       'closest','matches','includes','map','filter','forEach',
+       'find','findIndex','some','every','reduce',
+       'push','pop','slice','splice','join','trim',
+       'replace','toLowerCase','toUpperCase',
+       'setAttribute','getAttribute','addEventListener',
+       'preventDefault','stopPropagation'
+     ].includes(n));
+   names.forEach(name=>{
+     if(typeof window[name]!=='function' && typeof globalThis[name]!=='function'){
+       issues.push('Handler no disponible: '+name+' → '+(btn.textContent||'botón').trim());
+     }
+   });
+ });
+ alert(
+   (issues.length?'REVISAR BOTONES DOCUMENTALES':'BOTONES DOCUMENTALES OK')+
+   '\n\nInputs de archivo en pantalla actual: '+fileInputs.length+
+   '\nBotones documentales revisados: '+relevant.length+
+   '\nIncidencias: '+issues.length+
+   (issues.length?'\n\n'+issues.slice(0,30).join('\n'):'')
+ );
+ return {ok:issues.length===0,issues,fileInputs:fileInputs.length,buttons:relevant.length};
+}
 window.xiaraDocumentArchitectureSelfTest=function(){
  const results=[];
  const check=(name,ok)=>results.push([name,!!ok]);
@@ -1667,7 +1702,7 @@ function renderMods(){
  const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas y juntas.',`<button onclick="openSocio()">+ Socio</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('socios','socio','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
  document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button>`)}</div>`;
  document.getElementById('usuarios').innerHTML=header('Usuarios y roles','Usuarios vinculados solo a la empresa activa.',`<button onclick="openUser()">+ Usuario</button>`)+`<div class="card">${table(byCo(db.usuarios),[['Nombre','nombre'],['Rol','rol'],['Email','email']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('usuarios','usuario','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('usuarios','${x.id}')">Eliminar</button>`)}</div>`;
- document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><button class="secondary" onclick="xiaraV6Preflight()">Preflight deploy V6</button><button class="secondary" onclick="xiaraDocumentArchitectureSelfTest()">Test arquitectura documental</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div><div id="xiaraV6PreflightStatus" class="muted" style="margin-top:10px">Preflight pendiente.</div><div class="cloud-ok" style="margin-top:10px"><b>Integración documental unificada</b><br>Los botones originales de Legal, RRHH, Documental, Finanzas y Fiscalidad guardan ahora en Storage V6 + Firestore. Los repositorios auxiliares se mantienen para consulta y transición.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir repositorio</button></div></div>`;
+ document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><button class="secondary" onclick="xiaraV6Preflight()">Preflight deploy V6</button><button class="secondary" onclick="xiaraAuditDocumentButtons()">Auditar botones documentos</button><button class="secondary" onclick="xiaraDocumentArchitectureSelfTest()">Test arquitectura documental</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div><div id="xiaraV6PreflightStatus" class="muted" style="margin-top:10px">Preflight pendiente.</div><div class="cloud-ok" style="margin-top:10px"><b>Integración documental unificada</b><br>Los botones originales de Legal, RRHH, Documental, Finanzas y Fiscalidad guardan ahora en Storage V6 + Firestore. Los repositorios auxiliares se mantienen para consulta y transición.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir repositorio</button></div></div>`;
 }
 
 function legalFolderTemplate(){
@@ -2384,7 +2419,7 @@ async function renderLegalDocPreview(kind,id,cat,docId){
 
    if(name.endsWith('.docx') || mime.includes('wordprocessingml')){
      if(!window.mammoth){area.innerHTML='Mammoth.js no cargó.';return;}
-     if(!url.startsWith('data:')){area.innerHTML='Para vista previa DOCX se necesita copia local. Descarga o vuelve a subir el archivo.';return;}
+     if(xiaraIsRemoteUrl(url)){area.innerHTML=xiaraRemotePreviewFallback(url,d.name||d.filename||'DOCX','Documento V6 disponible. Usa Abrir archivo V6.');return;} if(!url.startsWith('data:')){area.innerHTML='Para vista previa DOCX se necesita copia local. Descarga o vuelve a subir el archivo.';return;}
      const arrayBuffer=dataUrlToArrayBuffer(url);
      const result=await mammoth.convertToHtml({arrayBuffer});
      area.innerHTML=`<div class="docx-preview">${result.value||'<p>Documento sin contenido visible.</p>'}</div>`;
@@ -2484,6 +2519,99 @@ function renderFinanzas(){const f=byCo(db.finanzas)[0]||{},fac=byCo(db.facturas)
  <div class="card" style="margin-top:16px"><h3>Modelos fiscales y presentaciones firmadas</h3><table><tr><th>Modelo</th><th>Nombre</th><th>Periodo</th><th>Estado</th><th>Presentaciones</th><th>Acciones</th></tr>${byCo(db.modelos).map(m=>`<tr><td><b>${m.modelo}</b></td><td>${m.nombre}</td><td>${m.periodo}</td><td>${badge(m.estado)}</td><td>${(m.presentaciones||[]).map(p=>`<div class="sign-box">📎 ${p.name}<br>Firmado por: <b>${p.firmadoPor}</b><br>${p.fechaFirma}<br>Hash: ${p.hash}</div>`).join('')||'<span class="muted">Sin presentación</span>'}</td><td><button onclick="attachModelo('${m.id}')">Adjuntar presentación + firma gestor</button><button class="danger" onclick="clearModelo('${m.id}')">Borrar presentación</button></td></tr>`).join('')}</table></div><div class="card" style="margin-top:16px"><h3>Cargar valores financieros</h3><div class="row">${['ivaRepercutido','ivaSoportado','irpf','impuestoSociedades','ingresos','gastos','activos','pasivos','dividendoEstimado'].map(k=>`<label>${k}<input id="fin_${k}" type="number" value="${f[k]||0}"></label>`).join('')}</div></div>`}
 
 // Actions
+
+window.openEmployeeDocUpload=function(empId){
+ const emp=(db.rrhh||[]).find(x=>x.id===empId);
+ if(!emp) return alert('Empleado no encontrado.');
+ ensureEmployeeFolders(emp);
+ modal(`
+   <h2>Subir documento — ${escHtml(emp.nombre||emp.nombres||empId)}</h2>
+   <div class="card">
+     <p class="muted">Selecciona la carpeta. El archivo quedará vinculado al empleado y guardado en Storage V6.</p>
+     <div class="form">
+       <select id="xiaraQuickEmpFolder">
+         <option value="nominas">Nóminas</option>
+         <option value="contratos">Contratos</option>
+         <option value="bajasMedicas">Bajas médicas</option>
+         <option value="vacaciones">Vacaciones</option>
+         <option value="dniPermisos">DNI/NIE y permisos</option>
+         <option value="accidentes">Accidentes</option>
+         <option value="otros">Otros documentos</option>
+       </select>
+       <input id="xiaraQuickEmpRef" placeholder="Periodo / referencia">
+       <input id="xiaraQuickEmpFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.csv,.txt">
+       <button onclick="xiaraQuickEmployeeDocUpload('${empId}')">Subir documento</button>
+     </div>
+     <div id="xiaraQuickEmpStatus" class="muted"></div>
+   </div>
+ `);
+}
+window.xiaraQuickEmployeeDocUpload=async function(empId){
+ const emp=(db.rrhh||[]).find(x=>x.id===empId);
+ const file=document.getElementById('xiaraQuickEmpFile')?.files?.[0];
+ const folder=val('xiaraQuickEmpFolder')||'otros';
+ const ref=val('xiaraQuickEmpRef')||today();
+ const status=document.getElementById('xiaraQuickEmpStatus');
+ if(!emp) return alert('Empleado no encontrado.');
+ if(!file) return alert('Selecciona un archivo.');
+ try{
+   if(status) status.textContent='Subiendo a V6...';
+   const uploaded=await uploadXIARAFile(file,`rrhh/${empId}/${folder}`,empId);
+   ensureEmployeeFolders(emp);
+   const item={
+     id:uid('RH-DOC'),
+     name:file.name, filename:file.name,
+     type:file.type||guessFileMime(file.name),
+     mimeType:file.type||guessFileMime(file.name),
+     sizeKb:Math.round(file.size/1024),
+     fecha:today(), periodo:ref, referencia:ref,
+     categoria:folder,
+     url:uploaded?.url||uploaded?.downloadUrl||'',
+     downloadUrl:uploaded?.downloadUrl||uploaded?.url||'',
+     storagePath:uploaded?.storagePath||'',
+     v6DocumentId:uploaded?.id||uploaded?.documentId||'',
+     estadoArchivo:uploaded?.url?'Guardado seguro':'Pendiente'
+   };
+   emp.carpetas[folder].push(item);
+   safeLocalSave();
+   if(cloud&&fs) await setDoc(doc(fs,'rrhh',emp.id),structuredClone(emp),{merge:true});
+   await audit(`Documento RRHH subido: ${emp.id}/${folder}/${file.name}`);
+   if(status) status.innerHTML='<span style="color:#15803d;font-weight:800">Documento guardado correctamente.</span>';
+   setTimeout(()=>viewEmployee(empId),300);
+ }catch(e){
+   console.error(e);
+   if(status) status.innerHTML='<span style="color:#b91c1c;font-weight:800">'+escHtml(e.message||String(e))+'</span>';
+ }
+}
+window.openSocio=function(id=''){
+ const s=id?(db.socios||[]).find(x=>x.id===id):null;
+ modal(`
+   <h2>${s?'Editar socio':'Nuevo socio'}</h2>
+   <div class="form">
+     <input id="soc_nombre" placeholder="Nombre / razón social" value="${escHtml(s?.nombre||'')}">
+     <input id="soc_part" type="number" step="0.01" placeholder="Participación %" value="${s?.participacion??''}">
+     <input id="soc_prest" type="number" step="0.01" placeholder="Préstamos" value="${s?.prestamos??0}">
+     <input id="soc_aport" type="number" step="0.01" placeholder="Aportaciones" value="${s?.aportaciones??0}">
+     <button onclick="saveSocio('${s?.id||''}')">Guardar socio</button>
+   </div>
+ `);
+}
+window.saveSocio=async function(id=''){
+ const nombre=val('soc_nombre').trim();
+ if(!nombre) return alert('Indica el nombre del socio.');
+ const existing=id?(db.socios||[]).find(x=>x.id===id):null;
+ const s=existing||{id:uid('SOC'),empresa_id:activeCompany};
+ s.nombre=nombre;
+ s.participacion=+val('soc_part')||0;
+ s.prestamos=+val('soc_prest')||0;
+ s.aportaciones=+val('soc_aport')||0;
+ if(!existing) db.socios.push(s);
+ safeLocalSave();
+ if(cloud&&fs) await setDoc(doc(fs,'socios',s.id),structuredClone(s),{merge:true});
+ await audit(`${existing?'Actualizado':'Creado'} socio ${s.id}`);
+ closeModal();
+ renderAll();
+}
 window.deleteRecord=async(kind,id)=>{if(!canDelete())return alert('Solo administrador puede eliminar registros.');if(!db[kind])return alert('Módulo no encontrado');if(!confirm('¿Eliminar este registro?'))return;db[kind]=db[kind].filter(x=>x.id!==id);if(cloud){try{await deleteDoc(doc(fs,kind,id));}catch(e){console.warn(e)}}await audit(`Eliminado ${kind}/${id}`);renderAll()}
 window.detail=(kind,id)=>{const x=db[kind].find(a=>a.id===id);modal(`<h2>${x.id||x.nombre}</h2><p>${badge(x.estado)} ${urgency(x.vencimiento,x.estado)}</p><div class="grid two"><div class="card"><h3>Datos</h3><p><b>Empresa:</b> ${x.empresa||company().nombre}<br><b>NIF:</b> ${x.nif||company().cif}<br><b>Organismo:</b> ${x.organismoNombre||x.organismo||x.tipo||'-'}<br><b>Identificador:</b> ${x.identificador||'-'}<br><b>DIR3:</b> ${x.dir3||'-'}<br><b>Vencimiento:</b> ${x.vencimiento||'-'}<br><b>Concepto:</b> ${x.concepto||'-'}</p><textarea id="det_res">${x.resumen||''}</textarea>${x.cuerpoCorreo?`<h3>Cuerpo completo del correo</h3><div class="preview-box">${String(x.cuerpoCorreo).replace(/[<>&]/g,s=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]))}</div>`:'' }<select id="det_estado"><option>Pendiente</option><option>Abierto</option><option>En revisión</option><option>En trámite</option><option>Contestado</option><option>Cerrado</option></select><button onclick="saveDetail('${kind}','${id}')">Guardar</button><button class="ok" onclick="sign('${kind}','${id}')">Firmar y cerrar</button></div><div class="card"><h3>Documentos/OCR</h3>${(x.docs||[]).map(d=>`<p>📎 ${typeof d==='string'?d:d.name}</p>`).join('')}<input id="manualDocName" placeholder="Adjunto"><button onclick="addDoc('${kind}','${id}')">Añadir adjunto</button><button class="secondary" onclick="runOCRCase('${kind}','${id}')">OCR / leer documento</button><h3>Chat</h3>${(x.chat||[]).map(m=>`<div class="msg"><b>${m.user}</b>: ${m.txt}</div>`).join('')}<input id="chatmsg" placeholder="Mensaje"><button onclick="sendChat('${kind}','${id}')">Enviar</button></div></div><div class="card" style="margin-top:16px"><h3>Historial</h3>${(x.historial||[]).map(h=>`<p>${h.at} — ${h.txt}</p>`).join('')}</div>`);document.getElementById('det_estado').value=x.estado||'Pendiente'}
 window.saveDetail=async(kind,id)=>{const x=db[kind].find(a=>a.id===id);x.resumen=val('det_res');x.estado=val('det_estado');x.historial=x.historial||[];x.historial.unshift({at:now(),txt:'Actualizado'});await saveCloud(kind,x);close()}
@@ -2850,8 +2978,7 @@ async function renderContratoMini(empId){
  const d=getEmployeeContractDoc(emp);
  if(!d){box.innerHTML='<h4>Contrato laboral</h4><p class="muted">Sin contrato visible.</p>';return;}
  const name=String(d.name||d.filename||'').toLowerCase();
- let url=d.dataUrl||d.thumb||d.url||'';
- if(!url&&d.blobKey){const b=await idbGetFile(d.blobKey); if(b)url=URL.createObjectURL(b);}
+ let url=await fileDocToObjectURL(d);
  box.onclick=()=>openRRHHDocViewer(empId,'contratos',d.id);
  box.innerHTML='<h4>Contrato laboral</h4><div id="empContratoPreviewInner">Cargando...</div>';
  const inner=document.getElementById('empContratoPreviewInner');
@@ -2861,6 +2988,10 @@ async function renderContratoMini(empId){
  }
  if(name.endsWith('.pdf')||String(d.type||'').includes('pdf')){
    try{
+     if(/^https?:/i.test(url)){
+       inner.innerHTML=`<div class="cloud-ok">Contrato disponible en V6.<br><button class="secondary" onclick="openRRHHDocViewer('${empId}','contratos','${d.id}')">Abrir contrato</button></div>`;
+       return;
+     }
      pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
      const data=url.startsWith('data:')?dataUrlToArrayBuffer(url):await(await fetch(url)).arrayBuffer();
      const pdf=await pdfjsLib.getDocument({data}).promise;
@@ -2882,8 +3013,12 @@ function getEmployeeDniDocs(x){
  return {frente,reverso};
 }
 async function fileDocToObjectURL(d){
- let url=d?.dataUrl||d?.thumb||d?.url||'';
- if(!url && d?.blobKey){const b=await idbGetFile(d.blobKey); if(b) url=URL.createObjectURL(b);}
+ let url='';
+ try{ url=await xiaraResolveDocumentUrl(d); }catch(_e){}
+ if(!url) url=d?.dataUrl||d?.thumb||d?.url||d?.downloadUrl||'';
+ if(!url && d?.blobKey){
+   try{ const b=await idbGetFile(d.blobKey); if(b) url=URL.createObjectURL(b); }catch(_e){}
+ }
  return url;
 }
 async function renderOneDniMini(empId,lado,boxId){
@@ -2902,6 +3037,10 @@ async function renderOneDniMini(empId,lado,boxId){
  }
  if(name.endsWith('.pdf')||String(d.type||'').includes('pdf')){
    try{
+     if(xiaraIsRemoteUrl(url)){
+       inner.innerHTML=xiaraRemotePreviewFallback(url,title,'PDF disponible en Storage V6.');
+       return;
+     }
      pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
      const data=url.startsWith('data:')?dataUrlToArrayBuffer(url):await(await fetch(url)).arrayBuffer();
      const pdf=await pdfjsLib.getDocument({data}).promise; const page=await pdf.getPage(1);
@@ -2948,6 +3087,10 @@ async function renderDniPreviewBox(empId){
  }
  if(name.endsWith('.pdf')||String(d.type||'').includes('pdf')){
    try{
+     if(xiaraIsRemoteUrl(url)){
+       inner.innerHTML=xiaraRemotePreviewFallback(url,d.name||d.filename||'DNI/NIE','PDF disponible en Storage V6.');
+       return;
+     }
      pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
      const data=url.startsWith('data:')?dataUrlToArrayBuffer(url):await(await fetch(url)).arrayBuffer();
      const pdf=await pdfjsLib.getDocument({data}).promise;
@@ -2979,6 +3122,10 @@ window.openEmployeeVisualZoom=async function(empId,what){
    stage.innerHTML=`<img id="zoomTarget" src="${url}">`;return;
  }
  if(name.endsWith('.pdf')||String(d?.type||'').includes('pdf')){
+   if(xiaraIsRemoteUrl(url)){
+     stage.innerHTML=xiaraRemotePdfPreviewHtml(url,d?.name||d?.filename||'PDF');
+     return;
+   }
    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
    const data=url.startsWith('data:')?dataUrlToArrayBuffer(url):await(await fetch(url)).arrayBuffer();
    const pdf=await pdfjsLib.getDocument({data}).promise;
@@ -4376,6 +4523,65 @@ function getRRHHDoc(empId,key,docId){
  return {emp,d};
 }
 
+
+
+function xiaraIsRemoteUrl(url){
+ return /^https?:/i.test(String(url||''));
+}
+function xiaraOpenRemoteFile(url){
+ if(!url) return alert('Archivo no disponible.');
+ window.open(String(url),'_blank','noopener');
+}
+function xiaraRemotePreviewFallback(url,name,message){
+ const safe=String(url||'').replace(/'/g,"%27");
+ return `<div class="cloud-ok">
+   <b>${escHtml(name||'Archivo V6')}</b><br>
+   ${escHtml(message||'Archivo guardado correctamente en Storage V6.')}
+   <br><button class="secondary" style="margin-top:8px" onclick="xiaraOpenRemoteFile('${safe}')">Abrir archivo V6</button>
+ </div>`;
+}
+async function xiaraResolveDocumentUrl(d){
+ if(!d) return '';
+
+ // Preferir siempre la metadata V6 canónica si existe.
+ if(d.v6DocumentId && window.XIARA && XIARA.dbService && typeof XIARA.dbService.get==='function'){
+   try{
+     const meta=await XIARA.dbService.get('documentos',d.v6DocumentId);
+     if(meta){
+       if(meta.downloadUrl) return String(meta.downloadUrl);
+       if(meta.url) return String(meta.url);
+     }
+   }catch(e){
+     console.warn('XIARA V6: no se pudo resolver metadata documental',e);
+   }
+ }
+
+ // Fallback a referencias ya guardadas.
+ const candidates=[
+   d.downloadUrl,
+   d.url,
+   d.dataUrl,
+   d.pdfUrl,
+   d.pdfBlobUrl
+ ].filter(Boolean);
+
+ // Evitar blob: antiguo de otra sesión si existe una URL persistente.
+ const persistent=candidates.find(u=>/^https?:/i.test(String(u)));
+ if(persistent) return String(persistent);
+
+ return candidates.length ? String(candidates[0]) : '';
+}
+
+function xiaraRemotePdfPreviewHtml(url,name){
+ const safeUrl=String(url||'').replace(/"/g,'&quot;');
+ const safeName=escHtml(name||'PDF');
+ return `<div class="cloud-ok" style="margin-bottom:10px">
+   <b>Archivo V6 disponible</b> · ${safeName}
+   <button class="secondary" style="margin-left:8px" onclick="window.open('${String(url||'').replace(/'/g,"%27")}','_blank')">Abrir en nueva pestaña</button>
+ </div>
+ <iframe src="${safeUrl}" title="${safeName}" style="width:100%;height:72vh;border:1px solid #dbe3ee;border-radius:12px;background:white"></iframe>`;
+}
+
 window.openRRHHDocViewer=function(empId,key,docId){
  const {emp,d}=getRRHHDoc(empId,key,docId); if(!emp||!d)return alert('Archivo no encontrado.');
  d.comentarios=d.comentarios||[];
@@ -4404,25 +4610,157 @@ window.deleteRRHHDoc=async function(empId,key,docId){
 }
 
 window.downloadRRHHDoc=async function(empId,key,docId){
- const {d}=getRRHHDoc(empId,key,docId); if(!d)return; let url=d.url||d.dataUrl||''; if(!url&&d.blobKey){const b=await idbGetFile(d.blobKey); if(b)url=URL.createObjectURL(b);} if(!url)return alert('No hay archivo para descargar.'); const a=document.createElement('a');a.href=url;a.download=d.name||'archivo';document.body.appendChild(a);a.click();a.remove();
+ const {d}=getRRHHDoc(empId,key,docId);
+ if(!d)return;
+
+ let url=await xiaraResolveDocumentUrl(d);
+
+ if(!url && d.blobKey){
+   try{
+     const b=await idbGetFile(d.blobKey);
+     if(b)url=URL.createObjectURL(b);
+   }catch(_e){}
+ }
+
+ if(!url)return alert('No hay archivo disponible para descargar.');
+
+ // Para URL remota de Firebase Storage, abrirla directamente es más fiable
+ // que forzar download cross-origin.
+ if(/^https?:/i.test(url)){
+   window.open(url,'_blank','noopener');
+   return;
+ }
+
+ const a=document.createElement('a');
+ a.href=url;
+ a.download=d.name||d.filename||'archivo';
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
 }
 
 async function renderRRHHDocPreview(empId,key,docId){
- const {d}=getRRHHDoc(empId,key,docId); const area=document.getElementById('rrhhDocViewerArea'); if(!area||!d)return;
- const name=String(d.name||d.filename||'').toLowerCase(); const mime=String(d.type||guessFileMime(name)||'').toLowerCase(); let url=d.dataUrl||d.url||d.pdfUrl||d.pdfBlobUrl||''; 
- if(!url && (d.pdfBlobKey||d.blobKey)){const b=await idbGetFile(d.pdfBlobKey||d.blobKey); if(b) url=URL.createObjectURL(b);}
- if(!url){area.innerHTML='<p>No hay copia local ni URL para vista previa. Vuelve a subir el archivo.</p>';return;}
- try{
-   if(mime.includes('image')||/\.(jpg|jpeg|png)$/i.test(name)){area.innerHTML=`<img src="${url}" alt="Vista previa">`;return;}
-   if(mime.includes('pdf')||name.endsWith('.pdf')){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';let data=url.startsWith('data:')?dataUrlToArrayBuffer(url):await(await fetch(url)).arrayBuffer();const pdf=await pdfjsLib.getDocument({data}).promise;area.innerHTML=`<p><b>PDF:</b> ${pdf.numPages} página(s)</p>`;for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const viewport=page.getViewport({scale:1.35});const canvas=document.createElement('canvas');const ctx=canvas.getContext('2d');canvas.width=viewport.width;canvas.height=viewport.height;area.appendChild(canvas);await page.render({canvasContext:ctx,viewport}).promise;}return;}
-   if(name.endsWith('.docx')||mime.includes('wordprocessingml')){const abDocx=url.startsWith('data:')?dataUrlToArrayBuffer(url):await(await fetch(url)).arrayBuffer();const result=await mammoth.convertToHtml({arrayBuffer:abDocx});area.innerHTML=`<div class="docx-preview">${result.value||'<p>Documento sin contenido visible.</p>'}</div>`;return;}
-   if(name.endsWith('.doc')){area.innerHTML='<div class="warn-box">Vista previa de DOC antiguo no está disponible en navegador sin conversión backend. Recomendado convertir a DOCX/PDF.</div>';return;}
-   if(name.endsWith('.xlsx')||name.endsWith('.xls')||mime.includes('spreadsheet')||mime.includes('excel')){const abXls=url.startsWith('data:')?dataUrlToArrayBuffer(url):await(await fetch(url)).arrayBuffer();const wb=XLSX.read(abXls,{type:'array'});const sheet=wb.Sheets[wb.SheetNames[0]];area.innerHTML=XLSX.utils.sheet_to_html(sheet,{id:'rrhhExcelPreview'});const tbl=area.querySelector('table');if(tbl)tbl.className='doc-preview-table';return;}
-   if(name.endsWith('.txt')||name.endsWith('.csv')||mime.includes('text')){let text='';if(url.startsWith('data:')){const raw=atob(String(url).split(',')[1]||'');try{text=decodeURIComponent(escape(raw));}catch(e){text=raw;}}else text=await(await fetch(url)).text();area.innerHTML=`<pre style="white-space:pre-wrap">${escHtml(text)}</pre>`;return;}
-   area.innerHTML='<div class="warn-box">Formato guardado, pero sin vista previa integrada. Usa Descargar.</div>';
- }catch(e){console.error(e);area.innerHTML='<div class="warn-box">No se pudo generar la vista previa: '+escHtml(e.message||e)+'</div>';}
-}
+ const {d}=getRRHHDoc(empId,key,docId);
+ const area=document.getElementById('rrhhDocViewerArea');
+ if(!area||!d)return;
 
+ const name=String(d.name||d.filename||'').toLowerCase();
+ const mime=String(d.type||d.mimeType||guessFileMime(name)||'').toLowerCase();
+
+ let url=await xiaraResolveDocumentUrl(d);
+
+ if(!url && (d.pdfBlobKey||d.blobKey)){
+   try{
+     const b=await idbGetFile(d.pdfBlobKey||d.blobKey);
+     if(b) url=URL.createObjectURL(b);
+   }catch(e){
+     console.warn('XIARA RRHH: IndexedDB no disponible para este archivo',e);
+   }
+ }
+
+ if(!url){
+   area.innerHTML='<div class="warn-box">No se encontró una URL persistente ni una copia local del archivo. Si este documento es antiguo, vuelve a subirlo para migrarlo a V6.</div>';
+   return;
+ }
+
+ try{
+   const isRemote=/^https?:/i.test(url);
+
+   if(mime.includes('image')||/\.(jpg|jpeg|png)$/i.test(name)){
+     area.innerHTML=`<img src="${url}" alt="Vista previa" style="max-width:100%;height:auto">`;
+     return;
+   }
+
+   if(mime.includes('pdf')||name.endsWith('.pdf')){
+     // Para Storage V6 remoto NO usamos fetch+PDF.js: evita CORS/Failed to fetch.
+     if(isRemote){
+       area.innerHTML=xiaraRemotePdfPreviewHtml(url,d.name||d.filename||'PDF');
+       return;
+     }
+
+     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+     const data=url.startsWith('data:')
+       ? dataUrlToArrayBuffer(url)
+       : await(await fetch(url)).arrayBuffer();
+
+     const pdf=await pdfjsLib.getDocument({data}).promise;
+     area.innerHTML=`<p><b>PDF:</b> ${pdf.numPages} página(s)</p>`;
+
+     for(let p=1;p<=pdf.numPages;p++){
+       const page=await pdf.getPage(p);
+       const viewport=page.getViewport({scale:1.35});
+       const canvas=document.createElement('canvas');
+       const ctx=canvas.getContext('2d');
+       canvas.width=viewport.width;
+       canvas.height=viewport.height;
+       area.appendChild(canvas);
+       await page.render({canvasContext:ctx,viewport}).promise;
+     }
+     return;
+   }
+
+   if(name.endsWith('.docx')||mime.includes('wordprocessingml')){
+     if(isRemote){
+       area.innerHTML=`<div class="warn-box">El documento está guardado correctamente en V6. Para DOCX remoto usa <b>Descargar</b> o <button class="secondary" onclick="window.open('${url.replace(/'/g,"%27")}','_blank')">Abrir archivo</button>.</div>`;
+       return;
+     }
+     const abDocx=url.startsWith('data:')?dataUrlToArrayBuffer(url):await(await fetch(url)).arrayBuffer();
+     const result=await mammoth.convertToHtml({arrayBuffer:abDocx});
+     area.innerHTML=`<div class="docx-preview">${result.value||'<p>Documento sin contenido visible.</p>'}</div>`;
+     return;
+   }
+
+   if(name.endsWith('.doc')){
+     area.innerHTML='<div class="warn-box">Vista previa de DOC antiguo no está disponible en navegador sin conversión. Usa Descargar o conviértelo a DOCX/PDF.</div>';
+     return;
+   }
+
+   if(name.endsWith('.xlsx')||name.endsWith('.xls')||mime.includes('spreadsheet')||mime.includes('excel')){
+     if(isRemote){
+       area.innerHTML=`<div class="warn-box">El archivo Excel está guardado correctamente en V6. Usa <b>Descargar</b> para abrirlo.</div>`;
+       return;
+     }
+     const abXls=url.startsWith('data:')?dataUrlToArrayBuffer(url):await(await fetch(url)).arrayBuffer();
+     const wb=XLSX.read(abXls,{type:'array'});
+     const sheet=wb.Sheets[wb.SheetNames[0]];
+     area.innerHTML=XLSX.utils.sheet_to_html(sheet,{id:'rrhhExcelPreview'});
+     const tbl=area.querySelector('table');
+     if(tbl)tbl.className='doc-preview-table';
+     return;
+   }
+
+   if(name.endsWith('.txt')||name.endsWith('.csv')||mime.includes('text')){
+     if(isRemote){
+       area.innerHTML=`<div class="warn-box">El archivo está guardado correctamente en V6. Usa <b>Descargar</b> para abrirlo.</div>`;
+       return;
+     }
+     let txt='';
+     if(url.startsWith('data:')){
+       const raw=atob(String(url).split(',')[1]||'');
+       try{txt=decodeURIComponent(escape(raw));}catch(e){txt=raw;}
+     }else{
+       txt=await(await fetch(url)).text();
+     }
+     area.innerHTML=`<pre style="white-space:pre-wrap">${escHtml(txt)}</pre>`;
+     return;
+   }
+
+   area.innerHTML='<div class="warn-box">Formato guardado correctamente, pero sin vista previa integrada. Usa Descargar.</div>';
+
+ }catch(e){
+   console.error('XIARA RRHH preview',e);
+
+   // Fallback final: si hay URL V6, nunca mostrar solamente "Failed to fetch".
+   if(/^https?:/i.test(url)){
+     area.innerHTML=`<div class="warn-box">
+       El archivo está guardado en V6, pero el navegador no pudo generar la vista previa interna.
+       <button class="secondary" onclick="window.open('${url.replace(/'/g,"%27")}','_blank')">Abrir archivo V6</button>
+     </div>`;
+   }else{
+     area.innerHTML='<div class="warn-box">No se pudo generar la vista previa: '+escHtml(e.message||e)+'</div>';
+   }
+ }
+}
 
 window.getSelectedRRHHIds=function(){
  return [...document.querySelectorAll('.rrhhSelect:checked')].map(x=>x.value).filter(Boolean);
