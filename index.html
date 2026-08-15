@@ -1197,8 +1197,32 @@ window.viewCasoJudicial=function(id){
 
    <div class="card" style="margin-top:16px" id="xiaraV6LegalDocsCard">
     <h3>Documentos V6</h3>
-    <p class="muted">Consultando metadatos documentales V6...</p>
-    <div id="xiaraV6LegalDocsList"></div>
+    <p class="muted">Lectura V6 activa. La subida sigue bloqueada mientras Firebase Storage esté en modo seguro.</p>
+
+    <div class="notice-box" style="margin:10px 0">
+      <b>Preparar subida V6 (sin guardar)</b>
+      <div class="row" style="margin-top:8px">
+        <select id="xiaraV6LegalCategoria">
+          <option value="demanda">Demanda</option>
+          <option value="contestacion">Contestación</option>
+          <option value="pruebas">Pruebas</option>
+          <option value="poderes">Poderes / representación</option>
+          <option value="resoluciones">Resoluciones / providencias</option>
+          <option value="otros">Otros documentos</option>
+        </select>
+        <input id="xiaraV6LegalFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.csv,.txt">
+      </div>
+      <button class="secondary" style="margin-top:8px" onclick="xiaraPrepareV6LegalUpload('${id}')">
+        Preparar ruta V6
+      </button>
+      <div id="xiaraV6LegalUploadPreview" class="muted" style="margin-top:8px">
+        No se enviará ningún archivo.
+      </div>
+    </div>
+
+    <div id="xiaraV6LegalDocsList">
+      <p class="muted">Consultando metadatos documentales V6...</p>
+    </div>
    </div>
 
    <div class="card" style="margin-top:16px">
@@ -1213,6 +1237,57 @@ window.viewCasoJudicial=function(id){
  }catch(e){
    console.error(e);
    alert('Error al abrir expediente: '+(e.message||e));
+ }
+}
+
+
+window.xiaraPrepareV6LegalUpload=function(id){
+ const preview=document.getElementById('xiaraV6LegalUploadPreview');
+ const input=document.getElementById('xiaraV6LegalFile');
+ const category=document.getElementById('xiaraV6LegalCategoria');
+
+ if(!preview||!input||!category) return;
+
+ try{
+   if(!input.files || !input.files.length){
+     preview.innerHTML='<span style="color:#b45309;font-weight:800">Selecciona primero un archivo.</span>';
+     return;
+   }
+
+   if(!window.XIARA || !XIARA.documents || typeof XIARA.documents.prepareUpload!=='function'){
+     preview.innerHTML='<span style="color:#b91c1c;font-weight:800">La capa documental V6 no está disponible.</span>';
+     return;
+   }
+
+   const file=input.files[0];
+
+   const prepared=XIARA.documents.prepareUpload({
+     empresaId:activeCompany,
+     modulo:'legal',
+     entidadTipo:'casoJudicial',
+     entidadId:id,
+     categoria:category.value||'otros',
+     file:file
+   });
+
+   const safeMode=(
+     XIARA.storageService &&
+     XIARA.storageService.enabled===false
+   );
+
+   preview.innerHTML=
+     '<div class="cloud-ok">'+
+       '<b>Ruta V6 preparada correctamente.</b><br>'+
+       'Documento: '+escHtml(file.name)+'<br>'+
+       'ID: '+escHtml(prepared.id)+'<br>'+
+       'Ruta: <code>'+escHtml(prepared.storagePath)+'</code><br>'+
+       '<b>Estado Storage:</b> '+(safeMode?'BLOQUEADO / modo seguro':'activo')+
+       '<br><span class="muted">Esta prueba no ha subido ni guardado nada.</span>'+
+     '</div>';
+
+ }catch(e){
+   console.warn('XIARA V6: error preparando subida Legal',e);
+   preview.innerHTML='<span style="color:#b91c1c;font-weight:800">No se pudo preparar la ruta V6: '+escHtml(e.message||String(e))+'</span>';
  }
 }
 
