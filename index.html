@@ -2044,7 +2044,7 @@ window.xiaraRuntimeHealthSnapshot=function(){
  return {
    at:new Date().toISOString(),
    branch:'v6.1-enterprise',
-   version:'6.1.0-enterprise-dev',
+   version:'6.2.0-enterprise-dev',
    activeCompany:activeCompany||null,
    activeListeners:window.XIARA_PERF?.activeSnapshotListeners||0,
    totalListeners:window.XIARA_PERF?.snapshotCollections||0,
@@ -2412,7 +2412,7 @@ function renderMods(){
  const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas y juntas.',`<button onclick="openSocio()">+ Socio</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('socios','socio','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
  document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button>`)}</div>`;
  document.getElementById('usuarios').innerHTML=header('Usuarios y roles','Usuarios vinculados solo a la empresa activa.',`<button onclick="openUser()">+ Usuario</button>`)+`<div class="card">${table(byCo(db.usuarios),[['Nombre','nombre'],['Rol','rol'],['Email','email']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('usuarios','usuario','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('usuarios','${x.id}')">Eliminar</button>`)}</div>`;
- document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><button class="secondary" onclick="xiaraV6Preflight()">Preflight deploy V6</button><button class="secondary" onclick="xiaraAuditDocumentButtons()">Auditar botones documentos</button><button class="secondary" onclick="xiaraV61Diagnostics()">Diagnóstico V6.1</button><button class="secondary" onclick="xiaraV61ReleaseStatus()">Validar release V6.1</button><button class="secondary" onclick="xiaraDocumentIntegrityScan()">Integridad documental</button><button class="secondary" onclick="xiaraRepairMissingV6Links()">Reparar enlaces V6</button><button class="secondary" onclick="xiaraLegacyBlobAssessment()">Evaluar blobs legacy</button><button class="secondary" onclick="xiaraLegacyBlobRecoverability()">Evaluar recuperabilidad blobs</button><button class="secondary" onclick="xiaraMigrateRecoverableLegacyBlobs()">Migrar blobs recuperables</button><button class="secondary" onclick="xiaraMarkDeadLegacyBlobs()">Marcar blobs no recuperables</button><button class="secondary" onclick="xiaraDocumentArchitectureSelfTest()">Test arquitectura documental</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div><div id="xiaraV6PreflightStatus" class="muted" style="margin-top:10px">Preflight pendiente.</div><div class="cloud-ok" style="margin-top:10px"><b>Integración documental unificada</b><br>Los botones originales de Legal, RRHH, Documental, Finanzas y Fiscalidad guardan ahora en Storage V6 + Firestore. Los repositorios auxiliares se mantienen para consulta y transición.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir repositorio</button></div></div>`;
+ document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><button class="secondary" onclick="xiaraV6Preflight()">Preflight deploy V6</button><button class="secondary" onclick="xiaraAuditDocumentButtons()">Auditar botones documentos</button><button class="secondary" onclick="xiaraV61Diagnostics()">Diagnóstico V6.1</button><button class="secondary" onclick="xiaraV62FastTrackAudit()">Diagnóstico V6.2 Fast-Track</button><button class="secondary" onclick="xiaraV62Preflight()">Preflight V6.2</button><button class="secondary" onclick="xiaraV61ReleaseStatus()">Validar release V6.1</button><button class="secondary" onclick="xiaraDocumentIntegrityScan()">Integridad documental</button><button class="secondary" onclick="xiaraRepairMissingV6Links()">Reparar enlaces V6</button><button class="secondary" onclick="xiaraLegacyBlobAssessment()">Evaluar blobs legacy</button><button class="secondary" onclick="xiaraLegacyBlobRecoverability()">Evaluar recuperabilidad blobs</button><button class="secondary" onclick="xiaraMigrateRecoverableLegacyBlobs()">Migrar blobs recuperables</button><button class="secondary" onclick="xiaraMarkDeadLegacyBlobs()">Marcar blobs no recuperables</button><button class="secondary" onclick="xiaraDocumentArchitectureSelfTest()">Test arquitectura documental</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div><div id="xiaraV6PreflightStatus" class="muted" style="margin-top:10px">Preflight pendiente.</div><div class="cloud-ok" style="margin-top:10px"><b>Integración documental unificada</b><br>Los botones originales de Legal, RRHH, Documental, Finanzas y Fiscalidad guardan ahora en Storage V6 + Firestore. Los repositorios auxiliares se mantienen para consulta y transición.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir repositorio</button></div></div>`;
 }
 
 function legalFolderTemplate(){
@@ -7366,7 +7366,158 @@ window.xiaraCreateTaskFromConference=function(confId){
 })();
 
 
-function renderAll(){xiaraEnsureExtended();normalizeRRHHDniFolders();normalizeRRHHDocumentLocations();normalizeRRHHPhotos();selectors();dash();renderMods();renderConferenciaPro();renderAgendaPro();renderFirmaDigitalPro();renderInformesPro();renderFiscalidadPro();}renderAll();
+window.XIARA_V62_PERF=window.XIARA_V62_PERF||{
+ version:'6.2.0-enterprise-dev',
+ renders:0,
+ collapsed:0,
+ totalMs:0,
+ maxMs:0,
+ lastMs:0,
+ lastStart:0,
+ rendering:false,
+ pending:false,
+ timer:null,
+ reasons:[],
+ longTasks:[],
+ staticDuplicateFunctions:[["closeOverlay", 3], ["collect", 2], ["currentCompanyId", 2], ["currentUserKey", 2], ["currentUserName", 3], ["down", 3], ["esc", 3], ["getEmp", 2], ["move", 3], ["pos", 3], ["store", 2], ["up", 2]]
+};
+
+window.xiaraRenderReason=function(reason){
+ const p=window.XIARA_V62_PERF;
+ if(!p) return;
+ p.reasons.push({at:new Date().toISOString(),reason:String(reason||'render')});
+ if(p.reasons.length>30) p.reasons.splice(0,p.reasons.length-30);
+};
+
+function renderAll(force){
+ const p=window.XIARA_V62_PERF;
+ const t0=(window.performance&&performance.now)?performance.now():Date.now();
+
+ // V6.2: conserva el primer render inmediato y colapsa únicamente ráfagas redundantes.
+ if(p && !force){
+   if(p.rendering){p.pending=true;p.collapsed++;return;}
+   const delta=t0-(p.lastStart||0);
+   if(p.lastStart && delta<35){
+     p.collapsed++;
+     if(!p.timer){
+       p.timer=setTimeout(()=>{p.timer=null;renderAll(true);},35-Math.max(0,delta));
+     }
+     return;
+   }
+ }
+
+ if(p){p.rendering=true;p.lastStart=t0;}
+ try{
+   xiaraEnsureExtended();
+   normalizeRRHHDniFolders();
+   normalizeRRHHDocumentLocations();
+   normalizeRRHHPhotos();
+   selectors();
+   dash();
+   renderMods();
+   renderConferenciaPro();
+   renderAgendaPro();
+   renderFirmaDigitalPro();
+   renderInformesPro();
+   renderFiscalidadPro();
+ }finally{
+   if(p){
+     const t1=(window.performance&&performance.now)?performance.now():Date.now();
+     const ms=Math.max(0,t1-t0);
+     p.renders++;
+     p.lastMs=ms;
+     p.totalMs+=ms;
+     p.maxMs=Math.max(p.maxMs,ms);
+     p.rendering=false;
+     if(p.pending){
+       p.pending=false;
+       if(!p.timer) p.timer=setTimeout(()=>{p.timer=null;renderAll(true);},0);
+     }
+   }
+ }
+}
+
+try{
+ if('PerformanceObserver' in window && !window.__XIARA_V62_LONGTASK_OBSERVER){
+   const obs=new PerformanceObserver(list=>{
+     const p=window.XIARA_V62_PERF;
+     if(!p) return;
+     list.getEntries().forEach(e=>p.longTasks.push({duration:Math.round(e.duration),start:Math.round(e.startTime)}));
+     if(p.longTasks.length>25) p.longTasks.splice(0,p.longTasks.length-25);
+   });
+   obs.observe({entryTypes:['longtask']});
+   window.__XIARA_V62_LONGTASK_OBSERVER=obs;
+ }
+}catch(_e){}
+
+window.xiaraV62RuntimeDuplicateIds=function(){
+ const seen=new Map(), dup=[];
+ document.querySelectorAll('[id]').forEach(el=>{
+   const id=el.id;
+   if(!id) return;
+   if(seen.has(id)) dup.push(id); else seen.set(id,el);
+ });
+ return [...new Set(dup)];
+};
+
+window.xiaraV62FastTrackAudit=function(){
+ const p=window.XIARA_V62_PERF||{};
+ const duplicateIds=xiaraV62RuntimeDuplicateIds();
+ const diag=window.XIARA_DIAG||{errors:[],rejections:[]};
+ const ops=window.XIARA_OPS||{locks:new Map(),failures:[]};
+ const avg=p.renders?Math.round((p.totalMs/p.renders)*10)/10:0;
+ const staticDup=p.staticDuplicateFunctions||[];
+ const activeListeners=(window.XIARA_ACTIVE_SNAPSHOT_COLS&&XIARA_ACTIVE_SNAPSHOT_COLS.size)||0;
+
+ const result={
+   ok:duplicateIds.length===0 && (diag.errors||[]).length===0 && (diag.rejections||[]).length===0,
+   version:p.version||'6.2.0-enterprise-dev',
+   renders:p.renders||0,
+   collapsed:p.collapsed||0,
+   averageMs:avg,
+   maxMs:Math.round((p.maxMs||0)*10)/10,
+   duplicateDomIds:duplicateIds,
+   staticDuplicateFunctionNames:staticDup,
+   runtimeErrors:(diag.errors||[]).length,
+   rejectedPromises:(diag.rejections||[]).length,
+   operationFailures:(ops.failures||[]).length,
+   activeListeners,
+   longTasks:(p.longTasks||[]).length
+ };
+ window.XIARA_V62_AUDIT=result;
+
+ alert(
+   (result.ok?'V6.2 FAST-TRACK OK':'V6.2 REVISAR')+'\n\n'+
+   'Renders ejecutados: '+result.renders+'\n'+
+   'Renders redundantes colapsados: '+result.collapsed+'\n'+
+   'Media render: '+result.averageMs+' ms\n'+
+   'Máximo render: '+result.maxMs+' ms\n'+
+   'IDs DOM duplicados activos: '+duplicateIds.length+'\n'+
+   'Errores runtime: '+result.runtimeErrors+'\n'+
+   'Promesas rechazadas: '+result.rejectedPromises+'\n'+
+   'Fallos de operación: '+result.operationFailures+'\n'+
+   'Listeners activos: '+result.activeListeners+'\n'+
+   'Long tasks observadas: '+result.longTasks+'\n\n'+
+   'Duplicidades de funciones detectadas estáticamente: '+staticDup.length+' nombres.\n'+
+   'No se ha eliminado ninguna automáticamente porque varias pertenecen a ámbitos/IIFE distintos.'
+ );
+ return result;
+};
+
+window.xiaraV62Preflight=async function(){
+ const checks=[];
+ try{const x=await XIARA.dbService.healthCheck();checks.push(['Firestore',!!x.ok]);}catch(_e){checks.push(['Firestore',false]);}
+ try{const x=await XIARA.storageService.healthCheck();checks.push(['Storage',!!x.ok]);checks.push(['Storage bloqueado por defecto',XIARA.storageService.enabled===false]);}catch(_e){checks.push(['Storage',false]);}
+ try{const x=await XIARA.documents.healthCheck();checks.push(['Documentos V6',!!x.ok]);}catch(_e){checks.push(['Documentos V6',false]);}
+ const a=xiaraV62FastTrackAudit();
+ checks.push(['Runtime V6.2',!!a.ok]);
+ const ok=checks.every(x=>x[1]);
+ window.XIARA_V62_PREFLIGHT={ok,checkedAt:new Date().toISOString(),checks,audit:a};
+ alert((ok?'PREFLIGHT V6.2 APROBADO':'PREFLIGHT V6.2 REQUIERE REVISIÓN')+'\n\n'+checks.map(x=>(x[1]?'OK  ':'FALLO  ')+x[0]).join('\n'));
+ return window.XIARA_V62_PREFLIGHT;
+};
+
+renderAll();
 
 
 
