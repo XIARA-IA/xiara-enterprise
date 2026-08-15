@@ -896,7 +896,65 @@ window.demo=showApp;
 window.login=async()=>{if(!cloud){showApp();return}try{await signInWithEmailAndPassword(auth,val('email'),val('pass'))}catch(e){document.getElementById('loginMsg').textContent=e.message}}
 window.logout=async()=>{if(cloud)await signOut(auth);document.getElementById('app').classList.add('hidden');document.getElementById('login').classList.remove('hidden')}
 if(cloud){onAuthStateChanged(auth,u=>{if(u){showApp();subscribe()}else{document.getElementById('app').classList.add('hidden');document.getElementById('login').classList.remove('hidden')}})}
-function subscribe(){if(subscribed||!cloud)return;subscribed=true;['empresas','usuarios','notificaciones','laborales','finanzas','compliance','rrhh','documentos','socios','jurisprudencia','plantillas','facturas','modelos','casosJudiciales','conciliaciones','audit'].forEach(col=>onSnapshot(collection(fs,col),s=>{const arr=s.docs.map(d=>({id:d.id,...d.data()})); if(arr.length){ if(col==='rrhh' && rrhhImportLock) return; db[col]=arr; } localSave(); renderAll();}))}
+let xiaraSnapshotRenderTimer=null;
+let xiaraSnapshotSaveTimer=null;
+let xiaraSnapshotPending=0;
+
+function xiaraScheduleSnapshotRefresh(){
+ xiaraSnapshotPending++;
+
+ // Agrupa ráfagas de onSnapshot para evitar 10-20 renderizados completos
+ // durante el arranque. No cambia los datos ni desactiva tiempo real.
+ if(xiaraSnapshotRenderTimer) clearTimeout(xiaraSnapshotRenderTimer);
+ xiaraSnapshotRenderTimer=setTimeout(()=>{
+   xiaraSnapshotRenderTimer=null;
+   const pending=xiaraSnapshotPending;
+   xiaraSnapshotPending=0;
+   try{ renderAll(); }
+   catch(e){ console.error('XIARA V6: error render agrupado',e); }
+   try{
+     window.XIARA_PERF=window.XIARA_PERF||{};
+     XIARA_PERF.lastSnapshotBatch=pending;
+     XIARA_PERF.lastRenderAt=Date.now();
+   }catch(_e){}
+ },90);
+
+ // Persistencia local ligera una sola vez por ráfaga.
+ if(xiaraSnapshotSaveTimer) clearTimeout(xiaraSnapshotSaveTimer);
+ xiaraSnapshotSaveTimer=setTimeout(()=>{
+   xiaraSnapshotSaveTimer=null;
+   try{ localSave(); }
+   catch(e){ console.warn('XIARA V6: guardado local agrupado falló',e); }
+ },180);
+}
+
+function subscribe(){
+ if(subscribed||!cloud)return;
+ subscribed=true;
+
+ const cols=['empresas','usuarios','notificaciones','laborales','finanzas','compliance','rrhh','documentos','socios','jurisprudencia','plantillas','facturas','modelos','casosJudiciales','conciliaciones','audit'];
+
+ window.XIARA_PERF=window.XIARA_PERF||{};
+ XIARA_PERF.snapshotCollections=cols.length;
+ XIARA_PERF.subscribeStartedAt=Date.now();
+
+ cols.forEach(col=>onSnapshot(
+   collection(fs,col),
+   s=>{
+     const arr=s.docs.map(d=>({id:d.id,...d.data()}));
+
+     if(arr.length){
+       if(col==='rrhh' && rrhhImportLock) return;
+       db[col]=arr;
+     }
+
+     xiaraScheduleSnapshotRefresh();
+   },
+   err=>{
+     console.warn('XIARA snapshot error ['+col+']',err);
+   }
+ ));
+}
 
 function days(d){return d?Math.ceil((new Date(d)-new Date(today()))/86400000):999}
 function badge(s){if(['Cerrado','Vigente','Activo','Alta','Bajo','Contabilizada','Presentado'].includes(s))return `<span class="badge okb">${s}</span>`;if(['Vencido','Alto','Crítico','Incidencia'].includes(s))return `<span class="badge bb">${s}</span>`;return `<span class="badge wb">${s||'Pendiente'}</span>`}
@@ -1278,7 +1336,8 @@ window.xiaraCheckV6Health=async function(){
        Firestore: ${dbHealth.ok?'OK':'NO'}<br>
        Storage: ${storageHealth.ok?'OK':'NO'} · modo ${escHtml(storageHealth.mode||'-')}<br>
        Documentos: ${docsHealth.ok?'OK':'NO'}<br>
-       Empresa activa: ${escHtml(activeCompany||'-')}
+       Empresa activa: ${escHtml(activeCompany||'-')}<br>
+       <span class="muted">Listeners legacy: ${window.XIARA_PERF?.snapshotCollections||0} · último lote agrupado: ${window.XIARA_PERF?.lastSnapshotBatch||0}</span>
      </div>`;
  }catch(e){
    console.error('XIARA V6 health check',e);
