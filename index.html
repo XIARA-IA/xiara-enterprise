@@ -2057,6 +2057,53 @@ window.xiaraRuntimeHealthSnapshot=function(){
  };
 }
 
+
+window.xiaraV61ReleaseStatus=async function(){
+ const checks=[];
+
+ try{
+   const dbh=await XIARA.dbService.healthCheck();
+   checks.push(['Firestore',!!dbh.ok]);
+ }catch(_e){checks.push(['Firestore',false]);}
+
+ try{
+   const sth=await XIARA.storageService.healthCheck();
+   checks.push(['Storage',!!sth.ok]);
+   checks.push(['Storage seguro por defecto',XIARA.storageService.enabled===false]);
+ }catch(_e){
+   checks.push(['Storage',false]);
+   checks.push(['Storage seguro por defecto',false]);
+ }
+
+ try{
+   const dh=await XIARA.documents.healthCheck();
+   checks.push(['Documentos V6',!!dh.ok]);
+ }catch(_e){checks.push(['Documentos V6',false]);}
+
+ const diag=xiaraV61Diagnostics();
+ checks.push(['Diagnóstico runtime',!!diag.ok]);
+
+ const integrity=xiaraDocumentIntegrityScan();
+ checks.push(['Integridad estructural',!!integrity.ok]);
+
+ const allOk=checks.every(x=>x[1]);
+
+ window.XIARA_V61_RELEASE={
+   version:'6.1.0-enterprise-rc1',
+   checkedAt:new Date().toISOString(),
+   ok:allOk,
+   checks
+ };
+
+ alert(
+   (allOk?'V6.1 RELEASE CANDIDATE APROBADA':'V6.1 REQUIERE REVISIÓN')+
+   '\n\n'+checks.map(([n,ok])=>(ok?'OK  ':'FALLO  ')+n).join('\n')+
+   '\n\nNota: las referencias blob legacy marcadas no cuentan como fallo estructural.'
+ );
+
+ return window.XIARA_V61_RELEASE;
+}
+
 window.xiaraV61Diagnostics=function(){
  const duplicates=xiaraRuntimeDuplicateIds();
  const removedStyles=xiaraCleanupDuplicateStyleIds();
@@ -2365,7 +2412,7 @@ function renderMods(){
  const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas y juntas.',`<button onclick="openSocio()">+ Socio</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('socios','socio','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
  document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button>`)}</div>`;
  document.getElementById('usuarios').innerHTML=header('Usuarios y roles','Usuarios vinculados solo a la empresa activa.',`<button onclick="openUser()">+ Usuario</button>`)+`<div class="card">${table(byCo(db.usuarios),[['Nombre','nombre'],['Rol','rol'],['Email','email']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('usuarios','usuario','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('usuarios','${x.id}')">Eliminar</button>`)}</div>`;
- document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><button class="secondary" onclick="xiaraV6Preflight()">Preflight deploy V6</button><button class="secondary" onclick="xiaraAuditDocumentButtons()">Auditar botones documentos</button><button class="secondary" onclick="xiaraV61Diagnostics()">Diagnóstico V6.1</button><button class="secondary" onclick="xiaraDocumentIntegrityScan()">Integridad documental</button><button class="secondary" onclick="xiaraRepairMissingV6Links()">Reparar enlaces V6</button><button class="secondary" onclick="xiaraLegacyBlobAssessment()">Evaluar blobs legacy</button><button class="secondary" onclick="xiaraLegacyBlobRecoverability()">Evaluar recuperabilidad blobs</button><button class="secondary" onclick="xiaraMigrateRecoverableLegacyBlobs()">Migrar blobs recuperables</button><button class="secondary" onclick="xiaraMarkDeadLegacyBlobs()">Marcar blobs no recuperables</button><button class="secondary" onclick="xiaraDocumentArchitectureSelfTest()">Test arquitectura documental</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div><div id="xiaraV6PreflightStatus" class="muted" style="margin-top:10px">Preflight pendiente.</div><div class="cloud-ok" style="margin-top:10px"><b>Integración documental unificada</b><br>Los botones originales de Legal, RRHH, Documental, Finanzas y Fiscalidad guardan ahora en Storage V6 + Firestore. Los repositorios auxiliares se mantienen para consulta y transición.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir repositorio</button></div></div>`;
+ document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><button class="secondary" onclick="xiaraV6Preflight()">Preflight deploy V6</button><button class="secondary" onclick="xiaraAuditDocumentButtons()">Auditar botones documentos</button><button class="secondary" onclick="xiaraV61Diagnostics()">Diagnóstico V6.1</button><button class="secondary" onclick="xiaraV61ReleaseStatus()">Validar release V6.1</button><button class="secondary" onclick="xiaraDocumentIntegrityScan()">Integridad documental</button><button class="secondary" onclick="xiaraRepairMissingV6Links()">Reparar enlaces V6</button><button class="secondary" onclick="xiaraLegacyBlobAssessment()">Evaluar blobs legacy</button><button class="secondary" onclick="xiaraLegacyBlobRecoverability()">Evaluar recuperabilidad blobs</button><button class="secondary" onclick="xiaraMigrateRecoverableLegacyBlobs()">Migrar blobs recuperables</button><button class="secondary" onclick="xiaraMarkDeadLegacyBlobs()">Marcar blobs no recuperables</button><button class="secondary" onclick="xiaraDocumentArchitectureSelfTest()">Test arquitectura documental</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div><div id="xiaraV6PreflightStatus" class="muted" style="margin-top:10px">Preflight pendiente.</div><div class="cloud-ok" style="margin-top:10px"><b>Integración documental unificada</b><br>Los botones originales de Legal, RRHH, Documental, Finanzas y Fiscalidad guardan ahora en Storage V6 + Firestore. Los repositorios auxiliares se mantienen para consulta y transición.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir repositorio</button></div></div>`;
 }
 
 function legalFolderTemplate(){
@@ -5272,6 +5319,78 @@ window.deleteRRHHDoc=async function(empId,key,docId){
  viewEmployee(empId);
 }
 
+
+window.xiaraReplaceLegacyRRHHDocument=async function(empId,key,docId){
+ const emp=(db.rrhh||[]).find(x=>x.id===empId);
+ if(!emp) return alert('Empleado no encontrado.');
+
+ ensureEmployeeFolders(emp);
+ const d=(emp.carpetas?.[key]||[]).find(x=>x.id===docId);
+ if(!d) return alert('Documento no encontrado.');
+
+ const input=document.getElementById('xiaraLegacyReplacementFile');
+ const file=input?.files?.[0];
+ if(!file) return alert('Selecciona el PDF o archivo original.');
+
+ const validation=(typeof xiaraValidateV6File==='function')
+   ? xiaraValidateV6File(file)
+   : {ok:true};
+
+ if(!validation.ok) return alert(validation.message||'Archivo no válido.');
+
+ if(!confirm(
+   'Se reemplazará la referencia temporal legacy por una copia persistente en Storage V6.\n\n'+
+   'Documento: '+(d.name||d.filename||docId)+'\n'+
+   'Archivo nuevo: '+file.name+'\n\n'+
+   'Se conservarán periodo, importe, empleado y referencias históricas.\n\n¿Continuar?'
+ )) return;
+
+ const status=document.getElementById('xiaraLegacyReplacementStatus');
+
+ try{
+   if(status) status.innerHTML='<span class="muted">Migrando archivo a Storage V6...</span>';
+
+   const uploaded=await uploadXIARAFile(file,`rrhh/${empId}/${key}`,empId);
+
+   d.legacyOriginalName=d.legacyOriginalName||d.name||d.filename||'';
+   d.legacyOriginalBlobKey=d.legacyOriginalBlobKey||d.blobKey||d.pdfBlobKey||'';
+   d.legacyOriginalBlobUrl=d.legacyOriginalBlobUrl||d.pdfBlobUrl||(
+     String(d.url||'').startsWith('blob:')?d.url:''
+   );
+
+   d.name=file.name;
+   d.filename=file.name;
+   d.type=file.type||guessFileMime(file.name);
+   d.mimeType=d.type;
+   d.sizeKb=Math.round(file.size/1024);
+
+   d.downloadUrl=uploaded?.downloadUrl||uploaded?.url||'';
+   d.url=d.downloadUrl;
+   d.storagePath=uploaded?.storagePath||'';
+   d.v6DocumentId=uploaded?.id||uploaded?.documentId||'';
+   d.estadoArchivo='Guardado seguro';
+   d.legacyUnavailable=false;
+   d.migratedFrom='legacy-manual-reupload';
+   d.migratedAt=new Date().toISOString();
+
+   safeLocalSave();
+
+   if(cloud&&fs){
+     await setDoc(doc(fs,'rrhh',emp.id),structuredClone(emp),{merge:true});
+   }
+
+   await audit(`Documento RRHH legacy migrado manualmente: ${empId}/${key}/${docId}`);
+
+   if(status) status.innerHTML='<span style="color:#15803d;font-weight:800">Archivo migrado correctamente a Storage V6.</span>';
+
+   setTimeout(()=>openRRHHDocViewer(empId,key,docId),350);
+
+ }catch(e){
+   console.error('XIARA V6.1: migración manual RRHH',e);
+   if(status) status.innerHTML='<span style="color:#b91c1c;font-weight:800">'+escHtml(e.message||String(e))+'</span>';
+ }
+}
+
 window.downloadRRHHDoc=async function(empId,key,docId){
  const {d}=getRRHHDoc(empId,key,docId);
  if(!d)return;
@@ -5323,7 +5442,20 @@ async function renderRRHHDocPreview(empId,key,docId){
 
  if(!url){
    if(d.legacyUnavailable || d.estadoArchivo==='Legacy no recuperable'){
-     area.innerHTML='<div class="warn-box"><b>Archivo legacy no recuperable en este navegador.</b><br>Los datos del documento se conservan, pero el archivo binario temporal ya no está disponible. Vuelve a subir el PDF original para migrarlo a Storage V6.</div>';
+     area.innerHTML=`
+       <div class="warn-box">
+         <b>Archivo legacy no recuperable en este navegador.</b><br>
+         Los datos del documento se conservan, pero el archivo binario temporal ya no está disponible.
+         Puedes seleccionar ahora el archivo original y XIARA conservará la ficha, periodo e importe existentes.
+       </div>
+       <div class="card" style="margin-top:12px">
+         <h3>Migrar este documento a V6</h3>
+         <input id="xiaraLegacyReplacementFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.csv,.txt">
+         <button style="margin-top:8px" onclick="xiaraReplaceLegacyRRHHDocument('${empId}','${key}','${docId}')">Reemplazar con archivo original</button>
+         <div id="xiaraLegacyReplacementStatus" class="muted" style="margin-top:8px">
+           No se eliminarán los metadatos históricos.
+         </div>
+       </div>`;
    }else{
      area.innerHTML='<div class="warn-box">No se encontró una URL persistente ni una copia local del archivo. Si este documento es antiguo, vuelve a subirlo para migrarlo a V6.</div>';
    }
