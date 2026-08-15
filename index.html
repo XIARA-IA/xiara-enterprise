@@ -1718,7 +1718,7 @@ window.viewConciliacion=function(id){
  modal(`<h2>${x.codigo} — ${x.caratula||'Conciliación'}</h2><p><b>Organismo:</b> ${x.organismo||'-'} · <b>Provincia:</b> ${x.provincia||'-'}<br><b>Abogado defensa:</b> ${x.abogadoDefensa||'-'} · <b>Estado:</b> ${x.estado||'-'}</p>${caseDocsHtml('conciliacion',id)}<div class="card"><h3>Historial</h3>${(x.historial||[]).map(h=>`<p>${h.at} — ${h.txt}</p>`).join('')}</div>`);
 }
 
-function renderFinanzas(){const f=byCo(db.finanzas)[0]||{},fac=byCo(db.facturas),iva=(f.ivaRepercutido||0)-(f.ivaSoportado||0),gastos=fac.reduce((a,b)=>a+(+b.total||0),0);document.getElementById('finanzas').innerHTML=header('3. Financiero / Fiscal PRO','Facturas, tickets, OCR, gastos, IVA, modelos AEAT y presentaciones firmadas.',`<button onclick="openFactura()">+ Subir factura/ticket</button><button class="secondary" onclick="importExcelCSV()">Importar Excel/CSV</button><button class="secondary" onclick="initFiscalModels()">Agregar modelos fiscales faltantes</button><button class="secondary" onclick="saveFinance()">Guardar finanzas</button>`)+`<div class="soft-grid"><div class="soft-card"><b>IVA estimado</b><div class="metric">${money(iva)}</div></div><div class="soft-card"><b>Facturas</b><div class="metric">${fac.length}</div></div><div class="soft-card"><b>Gastos</b><div class="metric">${money(gastos)}</div></div><div class="soft-card"><b>Modelos</b><div class="metric">${byCo(db.modelos).length}</div></div></div><div class="grid two"><div class="card"><h3>Planilla de facturas/gastos</h3>${table(fac,[['Proveedor','proveedor'],['Fecha','fecha'],['Categoría','categoria'],['Base','base',x=>money(x.base)],['IVA','iva',x=>`${x.ivaTipo}% · ${money(x.iva)}`],['Total','total',x=>money(x.total)]],x=>`<button class="secondary" onclick="editFactura('${x.id}')">Editar</button><button class="secondary" onclick="ocrFactura('${x.id}')">OCR</button><button class="danger" onclick="deleteRecord('facturas','${x.id}')">Eliminar</button>`)}</div><div class="card"><h3>IVA España</h3><p><b>Península y Baleares:</b> 21%, 10%, 4% y 0%.</p><p><b>Canarias:</b> IGIC, no IVA.</p></div></div>
+function renderFinanzas(){const f=byCo(db.finanzas)[0]||{},fac=byCo(db.facturas),iva=(f.ivaRepercutido||0)-(f.ivaSoportado||0),gastos=fac.reduce((a,b)=>a+(+b.total||0),0);document.getElementById('finanzas').innerHTML=header('3. Financiero / Fiscal PRO','Facturas, tickets, OCR, gastos, IVA, modelos AEAT y presentaciones firmadas.',`<button onclick="openFactura()">+ Subir factura/ticket</button><button class="secondary" onclick="importExcelCSV()">Importar Excel/CSV</button><button class="secondary" onclick="initFiscalModels()">Agregar modelos fiscales faltantes</button><button class="secondary" onclick="saveFinance()">Guardar finanzas</button>`)+`<div class="soft-grid"><div class="soft-card"><b>IVA estimado</b><div class="metric">${money(iva)}</div></div><div class="soft-card"><b>Facturas</b><div class="metric">${fac.length}</div></div><div class="soft-card"><b>Gastos</b><div class="metric">${money(gastos)}</div></div><div class="soft-card"><b>Modelos</b><div class="metric">${byCo(db.modelos).length}</div></div></div><div class="grid two"><div class="card"><h3>Planilla de facturas/gastos</h3>${table(fac,[['Proveedor','proveedor'],['Fecha','fecha'],['Categoría','categoria'],['Base','base',x=>money(x.base)],['IVA','iva',x=>`${x.ivaTipo}% · ${money(x.iva)}`],['Total','total',x=>money(x.total)]],x=>`<button class="secondary" onclick="editFactura('${x.id}')">Editar</button><button class="secondary" onclick="ocrFactura('${x.id}')">OCR</button><button class="secondary" onclick="xiaraViewV6FinanceDocs('${x.id}')">Docs V6</button><button class="danger" onclick="deleteRecord('facturas','${x.id}')">Eliminar</button>`)}</div><div class="card"><h3>IVA España</h3><p><b>Península y Baleares:</b> 21%, 10%, 4% y 0%.</p><p><b>Canarias:</b> IGIC, no IVA.</p></div></div>
  <div class="card" style="margin-top:16px"><div class="top" style="margin-bottom:10px">
  <div><h3 style="margin:0">Cargas sociales por centro de trabajo</h3></div>
  <div class="action-bar">
@@ -3767,6 +3767,71 @@ window.saveJuris=async()=>{const j={id:uid('JUR'),empresa_id:activeCompany,titul
 window.openPlantilla=()=>modal(`<h2>Nueva plantilla</h2><div class="form"><input id="tpl_nombre" placeholder="Nombre"><input id="tpl_cat" placeholder="Categoría"><input id="tpl_uso" placeholder="Uso"><button onclick="savePlantilla()">Guardar</button></div>`)
 window.savePlantilla=async()=>{const t={id:uid('TPL'),empresa_id:activeCompany,nombre:val('tpl_nombre'),categoria:val('tpl_cat'),uso:val('tpl_uso')};db.plantillas.unshift(t);await saveCloud('plantillas',t);close()}
 window.searchOfficialJuris=()=>{const q=encodeURIComponent(val('jurSearch')||'laboral');const urls=[`https://www.poderjudicial.es/search/indexAN.jsp?text=${q}`,`https://hj.tribunalconstitucional.es/HJ/es/Resolucion/List?texto=${q}`,`https://www.boe.es/buscar/legislacion.php?campo%5B0%5D=TITULO&dato%5B0%5D=${q}`];document.getElementById('jurResults').innerHTML=`<div class="msg"><b>Búsqueda oficial</b><br><button onclick="window.open('${urls[0]}','_blank')">CENDOJ / Poder Judicial</button><button onclick="window.open('${urls[1]}','_blank')">Tribunal Constitucional</button><button onclick="window.open('${urls[2]}','_blank')">BOE</button><p class="muted">Para traer resultados dentro de XIARA hace falta backend/proxy V4.8.6.</p></div>`}
+
+// Finance V6 - lectura documental segura (sin subidas)
+window.xiaraViewV6FinanceDocs=async function(id){
+ const f=(db.facturas||[]).find(x=>x.id===id);
+ if(!f) return alert('Factura no encontrada.');
+
+ modal(
+   `<h2>Documentos V6 — ${escHtml(f.proveedor||f.id)}</h2>
+    <div class="card">
+      <p><b>Factura:</b> ${escHtml(f.id||'-')}<br>
+      <b>Fecha:</b> ${escHtml(f.fecha||'-')} · <b>Total:</b> ${money(f.total||0)}<br>
+      <b>Archivo legacy:</b> ${escHtml(f.filename||'Sin archivo asociado')}</p>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>Documentos V6</h3>
+      <p class="muted">Lectura documental V6 activa. Esta pantalla no sube ni modifica archivos.</p>
+      <div id="xiaraV6FinanceDocsList"><p class="muted">Consultando metadatos V6...</p></div>
+    </div>`
+ );
+
+ const box=document.getElementById('xiaraV6FinanceDocsList');
+ if(!box) return;
+
+ try{
+   if(!window.XIARA || !XIARA.documents || typeof XIARA.documents.listForEntity!=='function'){
+     box.innerHTML='<div class="warn-box">La capa documental V6 no está disponible.</div>';
+     return;
+   }
+
+   const docs=await XIARA.documents.listForEntity({
+     empresaId:activeCompany,
+     modulo:'finanzas',
+     entidadTipo:'factura',
+     entidadId:id,
+     limit:100
+   });
+
+   if(!docs || !docs.length){
+     box.innerHTML=
+       '<div class="warn-box">Todavía no hay documentos migrados al almacenamiento V6 para esta factura. '+
+       'El archivo y los datos antiguos siguen disponibles en XIARA.</div>';
+     return;
+   }
+
+   box.innerHTML=docs.map(d=>`
+     <div class="sign-box" style="margin-bottom:8px">
+       <b>${escHtml(d.nombre||d.filename||d.id||'Documento')}</b>
+       <span style="float:right" class="badge">V6</span><br>
+       <span class="muted">
+         ${escHtml(d.categoria||'documento')} ·
+         ${escHtml(d.mimeType||'archivo')} ·
+         ${d.size ? Math.round(d.size/1024)+' KB' : '-'} ·
+         ${escHtml(d.estado||'disponible')}
+       </span><br>
+       <code>${escHtml(d.storagePath||'')}</code>
+     </div>
+   `).join('');
+
+ }catch(e){
+   console.error('XIARA V6: error leyendo documentos financieros',e);
+   box.innerHTML=
+     '<div class="warn-box">No se pudieron consultar los documentos V6. '+
+     'Los datos financieros legacy permanecen disponibles.</div>';
+ }
+}
 
 // Finance
 window.openFactura=()=>modal(`<h2>Nueva factura/ticket con OCR</h2><div class="form"><select id="fac_tipo"><option>Gasto</option><option>Compra</option><option>Ingreso</option></select><input id="fac_proveedor" placeholder="Proveedor / Cliente"><input id="fac_fecha" type="date" value="${today()}"><input id="fac_base" type="number" placeholder="Base imponible"><select id="fac_ivaTipo"><option value="21">21%</option><option value="10">10%</option><option value="4">4%</option><option value="0">0%</option></select><input id="fac_cat" placeholder="Categoría"><label>Factura/ticket PDF/JPG/PNG/TXT/CSV<input id="fac_file" type="file" accept=".pdf,.jpg,.jpeg,.png,.txt,.csv" onchange="previewInvoiceOCR()"></label><button class="secondary" onclick="previewInvoiceOCR()">Leer PDF / detectar gasto</button><textarea id="fac_ocr" placeholder="Texto OCR / contenido detectado"></textarea><div id="fac_detected" class="preview-box">Pendiente de lectura.</div><button type="button" onclick="window.saveFacturaDirecta()">Guardar factura/gasto</button><div id="fac_save_status" class="warn-box">Listo para guardar.</div></div>`)
