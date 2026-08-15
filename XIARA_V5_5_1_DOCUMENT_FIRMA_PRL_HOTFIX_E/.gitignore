@@ -1,0 +1,7 @@
+.firebase/
+node_modules/
+backups/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

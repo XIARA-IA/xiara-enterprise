@@ -1,0 +1,4 @@
+XIARA IA AUDITORIA V5.4.9 SAFE STORAGE PATCH REAL
+Base: V5.4.8/V5.4.6 stable
+Fecha: 2026-07-01
+Objetivo: corregir QuotaExceededError eliminando escritura en xiara_v34_estable_cache y backups gigantes.

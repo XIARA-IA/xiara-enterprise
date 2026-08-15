@@ -1,0 +1,8 @@
+# XIARA IA AUDITORIA V5.5.0 STORAGE ENTERPRISE HOTFIX C
+
+- Corrige definitivamente `ReferenceError: db is not defined` en firma digital y módulos `type=module`.
+- Expone la base principal como `window.db` tras cargar la base protegida.
+- Reescribe el almacén de firma para usar `window.db` y no variable libre `db`.
+- Mantiene V5.5.0 Storage Enterprise, diseño y módulos existentes.
+
+XIARA IA AUDITORIA V5.5.0 STORAGE ENTERPRISE HOTFIX B

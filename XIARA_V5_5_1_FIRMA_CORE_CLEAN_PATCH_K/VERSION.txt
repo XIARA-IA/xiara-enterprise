@@ -1,0 +1,3 @@
+XIARA IA AUDITORIA V5.5.1 FIRMA CORE CLEAN PATCH K
+Base: V5.5.0 STORAGE ENTERPRISE HOTFIX C
+Objetivo: corregir firma/sello desde base limpia sin parches contaminados.

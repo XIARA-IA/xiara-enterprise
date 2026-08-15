@@ -1,0 +1,3 @@
+XIARA IA AUDITORIA V5.4.9 SAFE STORAGE PATCH HOTFIX A
+Base: V5.4.9 Safe Storage Patch Real
+Fix: corrige SyntaxError por </script> dentro de impresión de nómina y añade /js en raíz para Firebase public=.

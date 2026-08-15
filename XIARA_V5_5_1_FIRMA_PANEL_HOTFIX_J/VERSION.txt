@@ -1,0 +1,11 @@
+XIARA IA AUDITORIA
+VERSION: V5.5.1 FIRMA PANEL HOTFIX J
+BASE: V5.5.0 STORAGE ENTERPRISE HOTFIX C
+FECHA: 2026-07-01
+ESTADO: PRUEBA LOCAL REQUERIDA
+
+Objetivo:
+- Restaurar botones funcionales de firma y sello.
+- Mostrar vista previa real en panel independiente.
+- Evitar errores de sintaxis causados por parches anteriores dentro de strings HTML.
+- Mantener Storage Enterprise y la base estable.

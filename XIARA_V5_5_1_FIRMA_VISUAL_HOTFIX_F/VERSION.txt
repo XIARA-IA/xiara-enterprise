@@ -1,0 +1,2 @@
+XIARA IA AUDITORIA V5.5.1 FIRMA VISUAL HOTFIX F
+Corrección post-core de vista real de firma/sello y PRL.

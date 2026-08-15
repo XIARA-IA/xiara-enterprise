@@ -1,0 +1,8 @@
+{
+  "name": "xiara-ia-auditoria-v2-cloud",
+  "version": "2.0.0",
+  "scripts": {
+    "deploy": "firebase deploy",
+    "serve": "firebase emulators:start"
+  }
+}

@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+
+    // Reglas base V2.
+    // Producción: vincular Firebase Auth UID con usuarios/{uid}
+    // y validar empresa_id estrictamente.
+    match /{document=**} {
+      allow read, write: if signedIn();
+    }
+  }
+}

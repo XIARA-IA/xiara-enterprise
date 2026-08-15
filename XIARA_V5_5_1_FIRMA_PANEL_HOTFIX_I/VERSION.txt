@@ -1,0 +1,10 @@
+XIARA IA AUDITORIA V5.5.1 FIRMA PANEL PRL HOTFIX G
+Base: V5.5.0 STORAGE ENTERPRISE HOTFIX C
+Objetivo: corregir vista real de firma en panel y reforzar sello/firma en documentos PRL/EPI/Salud Laboral.
+
+
+## V5.5.1 FIRMA PANEL HOTFIX I - 2026-07-01
+- Parche independiente final para botones de Firma y Sello.
+- Define funciones globales xiaraFirmaDiagnosticoI/H/G, xiaraFirmaOpenI y xiaraSelloOpenI.
+- Panel de firma/sello renderizado con eventos directos y captura global.
+- Persistencia compatible en localStorage ligero y estructura db.xiaraFirmaSello.

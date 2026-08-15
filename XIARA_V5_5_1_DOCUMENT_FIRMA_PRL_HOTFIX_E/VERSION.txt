@@ -1,0 +1,3 @@
+XIARA IA AUDITORIA V5.5.1 DOCUMENT/FIRMA/PRL HOTFIX E
+Base: V5.5.0 Storage Enterprise HOTFIX C + HOTFIX D
+Objetivo: firma visible en panel y sello/firma incrustados en PRL guardado.

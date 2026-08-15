@@ -1,0 +1,3 @@
+XIARA IA AUDITORIA V5.5.1 SELLO/FIRMA EMPRESA PERSISTENCE PATCH N
+Base: V5.5.0 STORAGE ENTERPRISE HOTFIX C + PATCH M
+Estado: prueba local. Corrige persistencia de sello/firma empresa al recargar.

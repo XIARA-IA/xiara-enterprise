@@ -1,0 +1,4 @@
+XIARA IA AUDITORIA
+Version: V5.5.1 DOCUMENT/FIRMA HOTFIX D
+Base: V5.5.0 Storage Enterprise HOTFIX C
+Estado: corrección funcional de firma visible y apertura de documentos PRL / Salud laboral.

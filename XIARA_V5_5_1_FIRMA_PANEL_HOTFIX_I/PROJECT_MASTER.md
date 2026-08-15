@@ -1,0 +1,47 @@
+# XIARA IA AUDITORIA V5.5.0 STORAGE ENTERPRISE HOTFIX C
+
+- Corrige definitivamente `ReferenceError: db is not defined` en firma digital y módulos `type=module`.
+- Expone la base principal como `window.db` tras cargar la base protegida.
+- Reescribe el almacén de firma para usar `window.db` y no variable libre `db`.
+- Mantiene V5.5.0 Storage Enterprise, diseño y módulos existentes.
+
+# XIARA IA AUDITORIA — PROJECT_MASTER
+
+Autor intelectual: Ezequiel Sebastián Ruiz. Todos los derechos reservados.
+
+## Versión base
+- Base recibida: V5.4.8 STABLE / transición V6 Enterprise.
+- Nueva versión generada: V5.4.9 SAFE STORAGE PATCH.
+
+## Regla de continuidad
+No reiniciar, no simplificar, no borrar módulos existentes, no cambiar identidad visual. Todo cambio debe ser incremental y compatible.
+
+## Objetivo inmediato
+Eliminar el error `QuotaExceededError` causado por datos pesados en `localStorage`.
+
+## Política de almacenamiento
+- localStorage: metadatos, sesión, configuración ligera y copia compacta.
+- IndexedDB: archivos locales temporales o pesados cuando Storage no esté disponible.
+- Firebase Storage: PDF, DOCX, XLSX, JPG, PNG, firmas y documentos reales.
+- Firestore: datos estructurados, expedientes, empleados, alertas, roles, logs.
+
+## Próximos pasos
+1. Probar carga de app.
+2. Probar subida de PDF/JPG en expedientes legales y RRHH.
+3. Revisar consola: no debe aparecer QuotaExceededError.
+4. Separar módulos por archivos JS sin romper index.
+
+
+## CONTINUIDAD ACTUAL - V5.5.0 STORAGE ENTERPRISE
+
+La versión publicada V5.4.9 SAFE STORAGE PATCH HOTFIX A cargó correctamente sin errores críticos. La nueva rama V5.5.0 añade Storage Enterprise: panel de control de localStorage, limpieza de cachés antiguas y migración progresiva a IndexedDB para datos pesados. No se cambia diseño ni se eliminan módulos.
+
+
+Estado actual: V5.5.1 FIRMA PANEL HOTFIX H. Objetivo: restaurar funcionamiento visual real de botones Firma/Sello y vista previa del panel.
+
+
+## V5.5.1 FIRMA PANEL HOTFIX I - 2026-07-01
+- Parche independiente final para botones de Firma y Sello.
+- Define funciones globales xiaraFirmaDiagnosticoI/H/G, xiaraFirmaOpenI y xiaraSelloOpenI.
+- Panel de firma/sello renderizado con eventos directos y captura global.
+- Persistencia compatible en localStorage ligero y estructura db.xiaraFirmaSello.

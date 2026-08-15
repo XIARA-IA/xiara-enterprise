@@ -1,0 +1,4 @@
+XIARA IA AUDITORIA V5.5.0 STORAGE ENTERPRISE
+Base anterior: V5.4.9 SAFE STORAGE PATCH HOTFIX A
+Fecha: 2026-07-01
+Estado: transición estable hacia almacenamiento empresarial.
