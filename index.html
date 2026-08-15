@@ -1194,13 +1194,74 @@ window.viewCasoJudicial=function(id){
     <button class="secondary" onclick="openCasoJudicial('${id}')">Editar datos</button>
    </div>
    <div style="margin-top:14px">${caseDocsHtml('caso',id)}</div>
+
+   <div class="card" style="margin-top:16px" id="xiaraV6LegalDocsCard">
+    <h3>Documentos V6</h3>
+    <p class="muted">Consultando metadatos documentales V6...</p>
+    <div id="xiaraV6LegalDocsList"></div>
+   </div>
+
    <div class="card" style="margin-top:16px">
     <h3>Historial</h3>
     ${(x.historial||[]).map(h=>`<p>${escHtml(h.at)} — ${escHtml(h.txt)}</p>`).join('')||'<p class="muted">Sin historial</p>'}
    </div>`);
+   setTimeout(function(){
+     if(typeof window.xiaraLoadV6LegalDocsForCase === 'function'){
+       window.xiaraLoadV6LegalDocsForCase(id);
+     }
+   },0);
  }catch(e){
    console.error(e);
    alert('Error al abrir expediente: '+(e.message||e));
+ }
+}
+
+window.xiaraLoadV6LegalDocsForCase=async function(id){
+ const list=document.getElementById('xiaraV6LegalDocsList');
+ const card=document.getElementById('xiaraV6LegalDocsCard');
+ if(!list||!card) return;
+
+ try{
+   if(!window.XIARA || !XIARA.documents || typeof XIARA.documents.listForEntity!=='function'){
+     list.innerHTML='<p class="muted">La capa documental V6 todavía no está disponible.</p>';
+     return;
+   }
+
+   const docs=await XIARA.documents.listForEntity({
+     empresaId:activeCompany,
+     modulo:'legal',
+     entidadTipo:'casoJudicial',
+     entidadId:id,
+     limit:100
+   });
+
+   if(!Array.isArray(docs) || !docs.length){
+     list.innerHTML='<p class="muted">Todavía no hay documentos migrados al almacenamiento V6 para este expediente. Los documentos antiguos siguen disponibles arriba.</p>';
+     return;
+   }
+
+   list.innerHTML=docs.map(function(d){
+     const nombre=escHtml(d.nombre||d.filename||d.id||'Documento');
+     const categoria=escHtml(d.categoria||'general');
+     const estado=escHtml(d.estado||'');
+     const tipo=escHtml(d.mimeType||'');
+     const size=Number(d.size||0);
+     const sizeTxt=size>0 ? Math.max(1,Math.round(size/1024))+' KB' : '-';
+
+     return `<div class="legal-doc-row">
+       <div>
+        <b>${nombre}</b><br>
+        <span class="muted">${categoria} · ${tipo||'tipo sin indicar'} · ${sizeTxt}${estado?' · '+estado:''}</span>
+       </div>
+       <div>
+        <span class="badge pb">V6</span>
+       </div>
+     </div>`;
+   }).join('');
+
+ }catch(e){
+   console.warn('XIARA V6: no se pudieron consultar documentos del caso',e);
+   list.innerHTML='<p class="muted">No se pudieron consultar los documentos V6. El expediente y sus documentos antiguos continúan disponibles.</p>';
  }
 }
 
