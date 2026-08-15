@@ -1,8 +1,47 @@
 rules_version = '2';
+
 service firebase.storage {
   match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function accessPath() {
+      return /databases/(default)/documents/access/$(request.auth.uid);
+    }
+
+    function hasEmpresaAccess(empresaId) {
+      return signedIn()
+        && firestore.exists(accessPath())
+        && firestore.get(accessPath()).data.activo == true
+        && empresaId in firestore.get(accessPath()).data.empresas;
+    }
+
+    function validUpload() {
+      return request.resource != null
+        && request.resource.size <= 50 * 1024 * 1024
+        && (
+          request.resource.contentType == 'application/pdf'
+          || request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/msword'
+          || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          || request.resource.contentType == 'application/vnd.ms-excel'
+          || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          || request.resource.contentType == 'text/csv'
+          || request.resource.contentType == 'text/plain'
+          || request.resource.contentType == 'application/octet-stream'
+        );
+    }
+
     match /empresas/{empresaId}/{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read: if hasEmpresaAccess(empresaId);
+
+      allow create, update: if hasEmpresaAccess(empresaId)
+        && validUpload();
+
+      allow delete: if hasEmpresaAccess(empresaId)
+        && firestore.get(accessPath()).data.rol == 'Administrador';
     }
   }
 }
