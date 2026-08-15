@@ -1038,22 +1038,99 @@ function dash(){const n=byCo(db.notificaciones),l=byCo(db.laborales),f=byCo(db.f
 
 function table(rows, cols, actions){return `<table><tr>${cols.map(c=>`<th>${c[0]}</th>`).join('')}<th>Acciones</th></tr>${rows.map(x=>`<tr class="${x.__rowClass||''}">${cols.map(c=>`<td>${c[2]?c[2](x):x[c[1]]||''}</td>`).join('')}<td>${actions(x)}</td></tr>`).join('')||`<tr><td colspan="${cols.length+1}" class="muted">Sin registros.</td></tr>`}</table>`}
 
+function xiaraLegacyUploadContext(folder,ownerId,file){
+ const raw=String(folder||'').replace(/^\/+|\/+$/g,'');
+ const parts=raw.split('/').filter(Boolean);
+ const safeOwner=String(ownerId||uid('ENT'));
+
+ // Canonical explicit routes used by the restructured UI.
+ if(parts[0]==='legal' && parts.length>=4){
+   return {modulo:'legal',entidadTipo:parts[1]==='caso'?'casoJudicial':'conciliacion',entidadId:parts[2],categoria:parts.slice(3).join('_')||'otros'};
+ }
+ if(parts[0]==='rrhh' && parts.length>=3){
+   return {modulo:'rrhh',entidadTipo:'empleado',entidadId:parts[1],categoria:parts.slice(2).join('_')||'otros'};
+ }
+ if(parts[0]==='finanzas' && parts.length>=3){
+   return {modulo:'finanzas',entidadTipo:parts[1],entidadId:parts[2],categoria:parts[3]||'otros'};
+ }
+ if(parts[0]==='documental' && parts.length>=3){
+   return {modulo:'documental',entidadTipo:parts[1],entidadId:parts[2],categoria:parts[3]||'otros'};
+ }
+ if(parts[0]==='fiscalidad' && parts.length>=3){
+   return {modulo:'fiscalidad',entidadTipo:parts[1],entidadId:parts[2],categoria:parts[3]||'otros'};
+ }
+
+ // Backwards-compatible mapping for call sites not yet explicit.
+ if(raw==='facturas') return {modulo:'finanzas',entidadTipo:'factura',entidadId:safeOwner,categoria:'factura_original'};
+ if(raw==='documentos') return {modulo:'documental',entidadTipo:'documentoCorporativo',entidadId:safeOwner,categoria:'otros'};
+ if(raw==='modelos_fiscales') return {modulo:'fiscalidad',entidadTipo:'modeloFiscal',entidadId:safeOwner,categoria:'declaracion'};
+ if(raw==='cargas_sociales') return {modulo:'finanzas',entidadTipo:'cargaSocial',entidadId:safeOwner,categoria:'soporte'};
+ if(raw==='cartas_pago') return {modulo:'finanzas',entidadTipo:'cartaPago',entidadId:safeOwner,categoria:'justificante'};
+ if(raw==='rrhh_nominas') return {modulo:'rrhh',entidadTipo:'empleado',entidadId:safeOwner,categoria:'nominas'};
+ if(raw==='rrhh') return {modulo:'rrhh',entidadTipo:'empleado',entidadId:safeOwner,categoria:'otros'};
+ if(raw==='casos_judiciales') return {modulo:'legal',entidadTipo:'casoJudicial',entidadId:safeOwner,categoria:'otros'};
+ if(raw==='conciliaciones') return {modulo:'legal',entidadTipo:'conciliacion',entidadId:safeOwner,categoria:'otros'};
+
+ return {modulo:'documental',entidadTipo:'legacy',entidadId:safeOwner,categoria:raw.replace(/[^A-Za-z0-9_-]/g,'_')||'otros'};
+}
+
 async function uploadXIARAFile(file, folder, ownerId){
  if(!file) return null;
- const meta={name:file.name,type:file.type,sizeKb:Math.round(file.size/1024),uploadedBy:user().nombre,uploadedAt:now(),storagePath:'',url:''};
- if(cloud && storage){
-   try{
-     const path=`empresas/${activeCompany}/${folder}/${ownerId}_${Date.now()}_${file.name}`;
-     const snap=await uploadBytes(ref(storage,path),file);
-     meta.storagePath=path;
-     meta.url=await getDownloadURL(snap.ref);
-   }catch(e){
-     console.warn('Storage no disponible, se guarda solo metadata',e);
-     meta.error='Storage no disponible o sin permisos';
-   }
+
+ const validation=(typeof xiaraValidateV6File==='function')?xiaraValidateV6File(file):{ok:true};
+ if(!validation.ok) throw new Error(validation.message||'Archivo no válido');
+
+ const ctx=xiaraLegacyUploadContext(folder,ownerId,file);
+ const meta={
+   name:file.name,
+   filename:file.name,
+   type:file.type||guessFileMime(file.name),
+   mimeType:file.type||guessFileMime(file.name),
+   sizeKb:Math.round(file.size/1024),
+   size:file.size,
+   uploadedBy:user().nombre,
+   uploadedAt:now(),
+   storagePath:'',
+   url:'',
+   downloadUrl:'',
+   v6DocumentId:'',
+   v6:true,
+   modulo:ctx.modulo,
+   entidadTipo:ctx.entidadTipo,
+   entidadId:ctx.entidadId,
+   categoria:ctx.categoria
+ };
+
+ if(!(window.XIARA&&XIARA.documents&&XIARA.storageService)){
+   throw new Error('Infraestructura documental V6 no disponible. No se guardó el archivo.');
  }
- return meta;
+
+ let enabled=false;
+ try{
+   XIARA.storageService.setEnabled(true);
+   enabled=true;
+
+   const saved=await XIARA.documents.upload({
+     empresaId:activeCompany,
+     modulo:ctx.modulo,
+     entidadTipo:ctx.entidadTipo,
+     entidadId:ctx.entidadId,
+     categoria:ctx.categoria,
+     file,
+     source:'legacy-ui-integrated-v6'
+   });
+
+   meta.storagePath=saved?.storagePath||'';
+   meta.url=saved?.downloadUrl||'';
+   meta.downloadUrl=saved?.downloadUrl||'';
+   meta.v6DocumentId=saved?.id||'';
+   meta.estadoArchivo='Guardado seguro';
+   return meta;
+ }finally{
+   if(enabled){try{XIARA.storageService.setEnabled(false);}catch(_e){}}
+ }
 }
+
 function fileLink(f){
  if(!f) return '';
  if(typeof f==='string') return `<span class="file-chip">📎 ${f}</span>`;
@@ -1208,12 +1285,46 @@ function xiaraV6CategoryOptions(modulo){
    .join('');
 }
 
+window.xiaraDeleteV6Document=async function(docId,storagePath,rowId=''){
+ if(!docId) return alert('Documento V6 no identificado.');
+ if(!confirm('¿Eliminar este archivo de forma permanente? Se borrará el archivo y su metadata.')) return;
+
+ let enabled=false;
+ try{
+   if(!(window.XIARA&&XIARA.dbService&&XIARA.storageService)) throw new Error('Servicios V6 no disponibles');
+   XIARA.storageService.setEnabled(true); enabled=true;
+   if(storagePath){
+     try{await XIARA.storageService.remove(storagePath);}catch(e){console.warn('Storage delete',e);}
+   }
+   await XIARA.dbService.remove('documentos',docId);
+   if(rowId){document.getElementById(rowId)?.remove();}
+   alert('Archivo eliminado correctamente.');
+ }catch(e){
+   console.error('XIARA V6 delete',e);
+   alert('No se pudo eliminar el archivo: '+(e.message||e));
+ }finally{
+   if(enabled){try{XIARA.storageService.setEnabled(false);}catch(_e){}}
+ }
+}
+
+async function xiaraDeleteLinkedV6(d){
+ if(!d?.v6DocumentId) return false;
+ let enabled=false;
+ try{
+   XIARA.storageService.setEnabled(true); enabled=true;
+   if(d.storagePath){try{await XIARA.storageService.remove(d.storagePath);}catch(e){console.warn(e);}}
+   await XIARA.dbService.remove('documentos',d.v6DocumentId);
+   return true;
+ }catch(e){console.warn('No se pudo borrar vínculo V6',e);return false;}
+ finally{if(enabled){try{XIARA.storageService.setEnabled(false);}catch(_e){}}}
+}
+
 function xiaraV6RenderDocsRows(docs){
  if(!docs || !docs.length){
    return '<div class="warn-box">Todavía no hay documentos V6 asociados a este registro. Los documentos legacy siguen disponibles y no se han modificado.</div>';
  }
  return docs.map(d=>`
-   <div class="sign-box" style="margin-bottom:8px">
+   <div class="sign-box" id="v6row_${String(d.id||'').replace(/[^A-Za-z0-9_-]/g,'_')}" style="margin-bottom:8px">
      <b>${escHtml(d.nombre||d.filename||d.id||'Documento')}</b>
      <span style="float:right" class="badge">V6</span><br>
      <span class="muted">
@@ -1223,7 +1334,10 @@ function xiaraV6RenderDocsRows(docs){
        ${escHtml(d.estado||'disponible')}
      </span><br>
      <code>${escHtml(d.storagePath||'')}</code>
-     ${d.downloadUrl ? `<br><button class="secondary" style="margin-top:6px" onclick="window.open('${String(d.downloadUrl).replace(/'/g,"%27")}','_blank')">Abrir archivo V6</button>` : ''}
+     <div style="margin-top:6px">
+       ${d.downloadUrl ? `<button class="secondary" onclick="window.open('${String(d.downloadUrl).replace(/'/g,"%27")}','_blank')">Abrir</button>` : ''}
+       <button class="danger" onclick="xiaraDeleteV6Document('${String(d.id||'').replace(/'/g,"")}', '${String(d.storagePath||'').replace(/'/g,"%27")}', 'v6row_${String(d.id||'').replace(/[^A-Za-z0-9_-]/g,'_')}')">Eliminar</button>
+     </div>
    </div>
  `).join('');
 }
@@ -1263,7 +1377,7 @@ window.xiaraOpenV6EntityDocs=async function(modulo,entidadTipo,entidadId,titulo)
    </div>
 
    <div class="card" style="margin-top:16px">
-     <h3>Subir documento V6</h3>
+     <h3>Subida auxiliar al repositorio</h3>
      <div class="row">
        <select id="xiaraV6CommonCategoria">${xiaraV6CategoryOptions(modulo)}</select>
        <input id="xiaraV6CommonFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.csv,.txt">
@@ -1273,7 +1387,7 @@ window.xiaraOpenV6EntityDocs=async function(modulo,entidadTipo,entidadId,titulo)
        Subir archivo V6
      </button>
      <div id="xiaraV6CommonUploadPreview" class="muted" style="margin-top:8px">
-       Storage solo se habilitará durante esta operación y volverá a modo seguro al terminar.
+       Para el trabajo diario usa las carpetas y botones originales del módulo. Este panel queda como repositorio auxiliar.
      </div>
    </div>
 
@@ -1315,6 +1429,23 @@ window.xiaraValidateV6File=function(file){
  }
 
  return {ok:true};
+}
+
+window.xiaraDocumentArchitectureSelfTest=function(){
+ const results=[];
+ const check=(name,ok)=>results.push([name,!!ok]);
+ try{
+   check('uploadXIARAFile integrado', typeof uploadXIARAFile==='function');
+   check('borrado V6 disponible', typeof xiaraDeleteV6Document==='function');
+   check('borrado vinculado disponible', typeof xiaraDeleteLinkedV6==='function');
+   check('servicio documentos', !!window.XIARA?.documents);
+   check('servicio Storage', !!window.XIARA?.storageService);
+   check('servicio Firestore', !!window.XIARA?.dbService);
+   check('Storage bloqueado por defecto', window.XIARA?.storageService?.enabled===false);
+   const ok=results.every(x=>x[1]);
+   alert((ok?'ARQUITECTURA DOCUMENTAL OK':'REVISAR ARQUITECTURA')+'\n\n'+results.map(x=>(x[1]?'OK  ':'FALLO  ')+x[0]).join('\n'));
+   return {ok,results};
+ }catch(e){console.error(e);return {ok:false,error:e.message||String(e)};}
 }
 
 window.xiaraV6Preflight=async function(){
@@ -1528,15 +1659,15 @@ function renderMods(){
  document.getElementById('notificaciones').innerHTML=header('1. Notificaciones Oficiales','TGSS, DEHÚ, AEAT, INSS.',`<button onclick="openNotif()">+ Nueva notificación</button>`)+`<div class="card">${table(byCo(db.notificaciones),[['Código','id',x=>`<b>${x.id}</b><br><span class="muted">${x.concepto||''}</span>`],['Canal/Organismo','organismo',x=>`${x.canal||x.organismo||''}<br><span class="muted">${x.organismoNombre||''}</span>`],['Identificador','identificador',x=>`${x.identificador||''}<br><span class="muted">${x.dir3||''}</span>`],['Vencimiento','vencimiento',x=>`${x.vencimiento||'-'}<br>${urgency(x.vencimiento,x.estado)}`],['Estado','estado',x=>xiaraEstadoBadgeFecha(x)]],x=>`<button class="secondary" onclick="detail('notificaciones','${x.id}')">Abrir</button><button class="danger" onclick="deleteRecord('notificaciones','${x.id}')">Eliminar</button>`)}</div>`;
  renderLegalLaboralPRO();
  renderFinanzas();
- document.getElementById('compliance').innerHTML=header('4. Compliance & Riesgo','RGPD, seguros, contratos, licencias y vencimientos.',`<button onclick="openCompliance()">+ Riesgo</button>`)+`<div class="card">${table(byCo(db.compliance),[['Tipo','tipo'],['Descripción','descripcion'],['Vencimiento','vencimiento'],['Riesgo','riesgo',x=>badge(x.riesgo)],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('compliance','riesgo','${x.id}','${String(x.descripcion||x.tipo||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('compliance','${x.id}')">Eliminar</button>`)}</div>`;
+ document.getElementById('compliance').innerHTML=header('4. Compliance & Riesgo','RGPD, seguros, contratos, licencias y vencimientos.',`<button onclick="openCompliance()">+ Riesgo</button>`)+`<div class="card">${table(byCo(db.compliance),[['Tipo','tipo'],['Descripción','descripcion'],['Vencimiento','vencimiento'],['Riesgo','riesgo',x=>badge(x.riesgo)],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('compliance','riesgo','${x.id}','${String(x.descripcion||x.tipo||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('compliance','${x.id}')">Eliminar</button>`)}</div>`;
  const rrhhRows=byCo(db.rrhh).slice().sort((a,b)=>{const na=xiaraNroSortValue(a), nb=xiaraNroSortValue(b); if(na!==nb) return na-nb; return String(a.nombre||a.nombres||'').localeCompare(String(b.nombre||b.nombres||''),'es');}).map(e=>{const st=rrhhDocExpiryStatus(e); return {...e,__rowClass:(st.level==='alert'||st.level==='expired')?'emp-expiry-alert-row':''};});
- document.getElementById('rrhh').innerHTML=header('5. Recursos Humanos PRO','Listado de empleados, ficha completa y carpetas documentales por trabajador.',`<button onclick="openRRHH()">+ Empleado completo</button><button class="secondary" onclick="openPayrollEmployeeImport()">Escanear PDF nóminas CCC</button><button class="danger" onclick="deleteSelectedRRHH()">Eliminar selección</button><button class="danger" onclick="deleteAllRRHH()">Eliminar todos</button>`)+`<div class="soft-grid"><div class="soft-card"><b>Empleados</b><div class="metric">${byCo(db.rrhh).length}</div></div><div class="soft-card"><b>Alertas caducidad DNI/NIE</b><div class="metric">${rrhhExpiryAlertCount()}</div></div><div class="soft-card"><b>Nóminas archivadas</b><div class="metric">${byCo(db.rrhh).reduce((a,e)=>a+(e.carpetas?.nominas?.length||0),0)}</div></div><div class="soft-card"><b>Contratos</b><div class="metric">${byCo(db.rrhh).reduce((a,e)=>a+(e.carpetas?.contratos?.length||0),0)}</div></div></div><div class="card"><h3>Listado de empleados</h3>${table(rrhhRows,[['Empleado','nombre',x=>{const st=rrhhDocExpiryStatus(x); const nameHtml=(st.level==='alert'||st.level==='expired')?`<span class="emp-expiry-alert-name"><b>${x.nombre||x.nombres||''}</b></span>`:`<b>${x.nombre||x.nombres||''}</b>`; return `<div class="emp-list-cell">${xiaraNroBadgeHtml(x)}${empPhotoHtml(x)}<div>${nameHtml}<br><span class="muted">${x.dni||''} · ${x.numeroSS||''}</span><br>${rrhhDocExpiryBadge(x)}</div></div>`;}],['Ciudad','ciudad',x=>xiaraCityNameFromEmployee(x)||x.ciudad||''],['City','ciudadTrabajo',x=>xiaraCityCodeFromEmployee(x)||'-'],['Puesto','puesto'],['Alta','fechaAlta'],['Fecha baja','fechaBaja',x=>xiaraFechaBajaEmpleadoDisplay(x)],['Caducidad DNI/NIE','dniPermisoCaducidad',x=>`${x.dniPermisoCaducidad?formatDateES(x.dniPermisoCaducidad):'-'}<br>${rrhhDocExpiryBadge(x)}`],['Estado','estado',x=>xiaraEstadoBadgeFecha(x)]],x=>`<button class="secondary" onclick="viewEmployee('${x.id}')">Documento empleado</button><button class="secondary" onclick="window.editRRHH('${x.id}')">Ficha empleado</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('rrhh','empleado','${x.id}','${String(x.nombre||x.nombres||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('rrhh','${x.id}')">Eliminar</button><label class="rrhh-select-box"><input type="checkbox" class="rrhhSelect" value="${x.id}"> Seleccionar</label>`)}</div>`;
- document.getElementById('documentos').innerHTML=header('6. Control Documental + OCR','Archivo corporativo, legal, fiscal, laboral y financiero.',`<button onclick="openDoc()">+ Documento</button>`)+`<div class="card">${table(byCo(db.documentos),[['Nombre','nombre'],['Categoría','categoria'],['Fecha','fecha'],['Vencimiento','vencimiento',x=>`${x.vencimiento||'-'}<br>${urgency(x.vencimiento,x.estado)}`],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="viewDoc('${x.id}')">Abrir</button><button class="secondary" onclick="editDoc('${x.id}')">Editar</button><button class="secondary" onclick="runOCRDoc('${x.id}')">OCR</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('documental','documentoCorporativo','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('documentos','${x.id}')">Eliminar</button>`)}</div>`;
+ document.getElementById('rrhh').innerHTML=header('5. Recursos Humanos PRO','Listado de empleados, ficha completa y carpetas documentales por trabajador.',`<button onclick="openRRHH()">+ Empleado completo</button><button class="secondary" onclick="openPayrollEmployeeImport()">Escanear PDF nóminas CCC</button><button class="danger" onclick="deleteSelectedRRHH()">Eliminar selección</button><button class="danger" onclick="deleteAllRRHH()">Eliminar todos</button>`)+`<div class="soft-grid"><div class="soft-card"><b>Empleados</b><div class="metric">${byCo(db.rrhh).length}</div></div><div class="soft-card"><b>Alertas caducidad DNI/NIE</b><div class="metric">${rrhhExpiryAlertCount()}</div></div><div class="soft-card"><b>Nóminas archivadas</b><div class="metric">${byCo(db.rrhh).reduce((a,e)=>a+(e.carpetas?.nominas?.length||0),0)}</div></div><div class="soft-card"><b>Contratos</b><div class="metric">${byCo(db.rrhh).reduce((a,e)=>a+(e.carpetas?.contratos?.length||0),0)}</div></div></div><div class="card"><h3>Listado de empleados</h3>${table(rrhhRows,[['Empleado','nombre',x=>{const st=rrhhDocExpiryStatus(x); const nameHtml=(st.level==='alert'||st.level==='expired')?`<span class="emp-expiry-alert-name"><b>${x.nombre||x.nombres||''}</b></span>`:`<b>${x.nombre||x.nombres||''}</b>`; return `<div class="emp-list-cell">${xiaraNroBadgeHtml(x)}${empPhotoHtml(x)}<div>${nameHtml}<br><span class="muted">${x.dni||''} · ${x.numeroSS||''}</span><br>${rrhhDocExpiryBadge(x)}</div></div>`;}],['Ciudad','ciudad',x=>xiaraCityNameFromEmployee(x)||x.ciudad||''],['City','ciudadTrabajo',x=>xiaraCityCodeFromEmployee(x)||'-'],['Puesto','puesto'],['Alta','fechaAlta'],['Fecha baja','fechaBaja',x=>xiaraFechaBajaEmpleadoDisplay(x)],['Caducidad DNI/NIE','dniPermisoCaducidad',x=>`${x.dniPermisoCaducidad?formatDateES(x.dniPermisoCaducidad):'-'}<br>${rrhhDocExpiryBadge(x)}`],['Estado','estado',x=>xiaraEstadoBadgeFecha(x)]],x=>`<button class="secondary" onclick="viewEmployee('${x.id}')">Documento empleado</button><button class="secondary" onclick="window.editRRHH('${x.id}')">Ficha empleado</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('rrhh','empleado','${x.id}','${String(x.nombre||x.nombres||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('rrhh','${x.id}')">Eliminar</button><label class="rrhh-select-box"><input type="checkbox" class="rrhhSelect" value="${x.id}"> Seleccionar</label>`)}</div>`;
+ document.getElementById('documentos').innerHTML=header('6. Control Documental + OCR','Archivo corporativo, legal, fiscal, laboral y financiero.',`<button onclick="openDoc()">+ Documento</button>`)+`<div class="card">${table(byCo(db.documentos),[['Nombre','nombre'],['Categoría','categoria'],['Fecha','fecha'],['Vencimiento','vencimiento',x=>`${x.vencimiento||'-'}<br>${urgency(x.vencimiento,x.estado)}`],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="viewDoc('${x.id}')">Abrir</button><button class="secondary" onclick="editDoc('${x.id}')">Editar</button><button class="secondary" onclick="runOCRDoc('${x.id}')">OCR</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('documental','documentoCorporativo','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('documentos','${x.id}')">Eliminar</button>`)}</div>`;
  renderInformes();
- const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas y juntas.',`<button onclick="openSocio()">+ Socio</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('socios','socio','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
- document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button>`)}</div>`;
- document.getElementById('usuarios').innerHTML=header('Usuarios y roles','Usuarios vinculados solo a la empresa activa.',`<button onclick="openUser()">+ Usuario</button>`)+`<div class="card">${table(byCo(db.usuarios),[['Nombre','nombre'],['Rol','rol'],['Email','email']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('usuarios','usuario','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('usuarios','${x.id}')">Eliminar</button>`)}</div>`;
- document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><button class="secondary" onclick="xiaraV6Preflight()">Preflight deploy V6</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div><div id="xiaraV6PreflightStatus" class="muted" style="margin-top:10px">Preflight pendiente.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir Docs V6</button></div></div>`;
+ const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas y juntas.',`<button onclick="openSocio()">+ Socio</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('socios','socio','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
+ document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button>`)}</div>`;
+ document.getElementById('usuarios').innerHTML=header('Usuarios y roles','Usuarios vinculados solo a la empresa activa.',`<button onclick="openUser()">+ Usuario</button>`)+`<div class="card">${table(byCo(db.usuarios),[['Nombre','nombre'],['Rol','rol'],['Email','email']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('usuarios','usuario','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('usuarios','${x.id}')">Eliminar</button>`)}</div>`;
+ document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><button class="secondary" onclick="xiaraV6Preflight()">Preflight deploy V6</button><button class="secondary" onclick="xiaraDocumentArchitectureSelfTest()">Test arquitectura documental</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div><div id="xiaraV6PreflightStatus" class="muted" style="margin-top:10px">Preflight pendiente.</div><div class="cloud-ok" style="margin-top:10px"><b>Integración documental unificada</b><br>Los botones originales de Legal, RRHH, Documental, Finanzas y Fiscalidad guardan ahora en Storage V6 + Firestore. Los repositorios auxiliares se mantienen para consulta y transición.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir repositorio</button></div></div>`;
 }
 
 function legalFolderTemplate(){
@@ -1683,7 +1814,7 @@ window.uploadLegalDocDirect=async function(kind,id,cat,inputId){
      const dataUrl=await readFileDataURL(f);
      let uploaded={};
      try{
-       uploaded=await uploadXIARAFile(f,kind==='caso'?'casos_judiciales':'conciliaciones',id+'_'+cat+'_'+Date.now());
+       uploaded=await uploadXIARAFile(f,`legal/${kind}/${id}/${cat}`,id);
      }catch(e){
        uploaded={error:'Storage no disponible'};
      }
@@ -1700,7 +1831,9 @@ window.uploadLegalDocDirect=async function(kind,id,cat,inputId){
        dataUrl:dataUrl,
        url:uploaded?.url||'',
        storagePath:uploaded?.storagePath||'',
-       estadoArchivo:uploaded?.url?'Subido a Storage':'Guardado localmente en XIARA'
+       estadoArchivo:uploaded?.url?'Guardado seguro':'Guardado localmente en XIARA',
+       v6DocumentId:uploaded?.v6DocumentId||'',
+       v6:true
      });
    }
 
@@ -1739,6 +1872,8 @@ window.deleteLegalDocDirect=async function(kind,id,cat,docId){
    const x=(arr||[]).find(a=>a.id===id);
    if(!x||!x.carpetas||!x.carpetas[cat]) return alert('No se encontró la carpeta.');
    const before=x.carpetas[cat].length;
+   const doomed=x.carpetas[cat].find(d=>d.id===docId);
+   if(doomed?.v6DocumentId) await xiaraDeleteLinkedV6(doomed);
    x.carpetas[cat]=x.carpetas[cat].filter(d=>d.id!==docId);
    const removed=before-x.carpetas[cat].length;
    x.historial=x.historial||[];
@@ -2066,7 +2201,7 @@ window.uploadLegalFromCard=async function(cardId){
        dataUrl:dataUrl,
        url:'',
        storagePath:'',
-       estadoArchivo:'Guardado localmente en XIARA'
+       estadoArchivo:'Preparando almacenamiento seguro'
      };
 
      x.carpetas[cat].push(docItem);
@@ -2087,7 +2222,7 @@ window.uploadLegalFromCard=async function(cardId){
    addedDocs.forEach(({file,docId})=>{
      setTimeout(async()=>{
        try{
-         const uploaded=await uploadXIARAFile(file,kind==='caso'?'casos_judiciales':'conciliaciones',id+'_'+cat+'_'+Date.now());
+         const uploaded=await uploadXIARAFile(file,`legal/${kind}/${id}/${cat}`,id);
          const current=(kind==='caso'?db.casosJudiciales:db.conciliaciones).find(a=>a.id===id);
          const item=current?.carpetas?.[cat]?.find(d=>d.id===docId);
          if(item && uploaded?.url){
@@ -2314,7 +2449,7 @@ window.viewConciliacion=function(id){
  modal(`<h2>${x.codigo} — ${x.caratula||'Conciliación'}</h2><p><b>Organismo:</b> ${x.organismo||'-'} · <b>Provincia:</b> ${x.provincia||'-'}<br><b>Abogado defensa:</b> ${x.abogadoDefensa||'-'} · <b>Estado:</b> ${x.estado||'-'}</p>${caseDocsHtml('conciliacion',id)}<div class="card"><h3>Historial</h3>${(x.historial||[]).map(h=>`<p>${h.at} — ${h.txt}</p>`).join('')}</div>`);
 }
 
-function renderFinanzas(){const f=byCo(db.finanzas)[0]||{},fac=byCo(db.facturas),iva=(f.ivaRepercutido||0)-(f.ivaSoportado||0),gastos=fac.reduce((a,b)=>a+(+b.total||0),0);document.getElementById('finanzas').innerHTML=header('3. Financiero / Fiscal PRO','Facturas, tickets, OCR, gastos, IVA, modelos AEAT y presentaciones firmadas.',`<button onclick="openFactura()">+ Subir factura/ticket</button><button class="secondary" onclick="importExcelCSV()">Importar Excel/CSV</button><button class="secondary" onclick="initFiscalModels()">Agregar modelos fiscales faltantes</button><button class="secondary" onclick="saveFinance()">Guardar finanzas</button>`)+`<div class="soft-grid"><div class="soft-card"><b>IVA estimado</b><div class="metric">${money(iva)}</div></div><div class="soft-card"><b>Facturas</b><div class="metric">${fac.length}</div></div><div class="soft-card"><b>Gastos</b><div class="metric">${money(gastos)}</div></div><div class="soft-card"><b>Modelos</b><div class="metric">${byCo(db.modelos).length}</div></div></div><div class="grid two"><div class="card"><h3>Planilla de facturas/gastos</h3>${table(fac,[['Proveedor','proveedor'],['Fecha','fecha'],['Categoría','categoria'],['Base','base',x=>money(x.base)],['IVA','iva',x=>`${x.ivaTipo}% · ${money(x.iva)}`],['Total','total',x=>money(x.total)]],x=>`<button class="secondary" onclick="editFactura('${x.id}')">Editar</button><button class="secondary" onclick="ocrFactura('${x.id}')">OCR</button><button class="secondary" onclick="xiaraViewV6FinanceDocs('${x.id}')">Docs V6</button><button class="danger" onclick="deleteRecord('facturas','${x.id}')">Eliminar</button>`)}</div><div class="card"><h3>IVA España</h3><p><b>Península y Baleares:</b> 21%, 10%, 4% y 0%.</p><p><b>Canarias:</b> IGIC, no IVA.</p></div></div>
+function renderFinanzas(){const f=byCo(db.finanzas)[0]||{},fac=byCo(db.facturas),iva=(f.ivaRepercutido||0)-(f.ivaSoportado||0),gastos=fac.reduce((a,b)=>a+(+b.total||0),0);document.getElementById('finanzas').innerHTML=header('3. Financiero / Fiscal PRO','Facturas, tickets, OCR, gastos, IVA, modelos AEAT y presentaciones firmadas.',`<button onclick="openFactura()">+ Subir factura/ticket</button><button class="secondary" onclick="importExcelCSV()">Importar Excel/CSV</button><button class="secondary" onclick="initFiscalModels()">Agregar modelos fiscales faltantes</button><button class="secondary" onclick="saveFinance()">Guardar finanzas</button>`)+`<div class="soft-grid"><div class="soft-card"><b>IVA estimado</b><div class="metric">${money(iva)}</div></div><div class="soft-card"><b>Facturas</b><div class="metric">${fac.length}</div></div><div class="soft-card"><b>Gastos</b><div class="metric">${money(gastos)}</div></div><div class="soft-card"><b>Modelos</b><div class="metric">${byCo(db.modelos).length}</div></div></div><div class="grid two"><div class="card"><h3>Planilla de facturas/gastos</h3>${table(fac,[['Proveedor','proveedor'],['Fecha','fecha'],['Categoría','categoria'],['Base','base',x=>money(x.base)],['IVA','iva',x=>`${x.ivaTipo}% · ${money(x.iva)}`],['Total','total',x=>money(x.total)]],x=>`<button class="secondary" onclick="editFactura('${x.id}')">Editar</button><button class="secondary" onclick="ocrFactura('${x.id}')">OCR</button><button class="secondary" onclick="xiaraViewV6FinanceDocs('${x.id}')">Repositorio</button><button class="danger" onclick="deleteRecord('facturas','${x.id}')">Eliminar</button>`)}</div><div class="card"><h3>IVA España</h3><p><b>Península y Baleares:</b> 21%, 10%, 4% y 0%.</p><p><b>Canarias:</b> IGIC, no IVA.</p></div></div>
  <div class="card" style="margin-top:16px"><div class="top" style="margin-bottom:10px">
  <div><h3 style="margin:0">Cargas sociales por centro de trabajo</h3></div>
  <div class="action-bar">
@@ -2389,9 +2524,9 @@ window.createRRHH=async()=>{
  const nombre=(val('rh_nombres')+' '+val('rh_apellidos')).trim();
  const foto=document.getElementById('rh_foto')?.files?.[0]||null,dniFile=document.getElementById('rh_dni_file')?.files?.[0]||null,contrato=document.getElementById('rh_file')?.files?.[0]||null;
  const id=uid('RH');
- const fotoUp=await uploadXIARAFile(foto,'rrhh',id+'_foto');
- const dniUp=await uploadXIARAFile(dniFile,'rrhh',id+'_dni');
- const contratoUp=await uploadXIARAFile(contrato,'rrhh',id+'_contrato');
+ const fotoUp=await uploadXIARAFile(foto,`rrhh/${id}/foto`,id);
+ const dniUp=await uploadXIARAFile(dniFile,`rrhh/${id}/dniPermisos`,id);
+ const contratoUp=await uploadXIARAFile(contrato,`rrhh/${id}/contratos`,id);
  const docs=[fotoUp,dniUp,contratoUp].filter(Boolean);
  const r={id,empresa_id:activeCompany,nombres:val('rh_nombres'),apellidos:val('rh_apellidos'),nombre,dni:val('rh_dni'),dniPermisoCaducidad:val('rh_dni_caducidad'),dniPermisoAlertaDias:+val('rh_dni_alerta_dias')||60,fechaNacimiento:val('rh_nacimiento'),edad:+val('rh_edad')||0,nacionalidad:val('rh_nacionalidad'),direccion:val('rh_direccion'),ciudad:(val('rh_ciudad_trabajo')?xiaraCityNameFromCode(val('rh_ciudad_trabajo')):val('rh_ciudad')),ciudadTrabajo:(val('rh_ciudad_trabajo')||xiaraCityCodeFromValue(val('rh_ciudad'))),cityCode:(val('rh_ciudad_trabajo')||xiaraCityCodeFromValue(val('rh_ciudad'))),codigoPostal:val('rh_cp'),email:val('rh_email'),movil:val('rh_movil'),iban:val('rh_iban'),numeroSS:val('rh_ssnum'),permisoTrabajo:val('rh_permiso'),puesto:val('rh_puesto'),departamento:val('rh_departamento'),contrato:val('rh_contrato'),fechaAlta:val('rh_alta'),jornada:val('rh_jornada'),salario:+val('rh_salario')||0,seguridadSocial:val('rh_ss'),vacaciones:+val('rh_vac')||0,absentismo:+val('rh_abs')||0,estado:val('rh_estado'),notas:val('rh_notas'),fotoArchivo:fotoUp,dniArchivo:dniUp,contratoArchivo:contratoUp,docs,carpetas:{nominas:[],contratos:contratoUp?[contratoUp]:[],bajasMedicas:[],vacaciones:[],dniPermisos:dniUp?[dniUp]:[],accidentes:[],otros:fotoUp?[fotoUp]:[]},historial:[{at:now(),txt:'Empleado creado con ficha completa y archivos'}]};
  db.rrhh.push(r);await saveCloud('rrhh',r);close()}
@@ -2934,7 +3069,7 @@ async function saveEmployeeFileDirect(empId,file,targetFolder,label,extra={}){
    thumb,
    url:'',
    storagePath:'',
-   estadoArchivo:'Guardado localmente en XIARA',
+   estadoArchivo:'Preparando almacenamiento seguro',
    comentarios:[],
    ...extra
  };
@@ -2969,7 +3104,7 @@ async function saveEmployeeFileDirect(empId,file,targetFolder,label,extra={}){
      if(d&&up?.url){
        d.url=up.url;
        d.storagePath=up.storagePath||'';
-       d.estadoArchivo='Subido a Storage';
+       d.estadoArchivo='Guardado seguro';
        safeLocalSave();
      }
    }catch(e){console.warn('Storage pendiente/no disponible',e);}
@@ -3032,7 +3167,7 @@ window.saveRRHH=async function(id){
    async function addLocalFile(file,folder,label){
      if(!file) return;
      let dataUrl=''; try{dataUrl=await readFileDataURL(file);}catch(e){}
-     const item={id:uid('RH-DOC'),name:file.name,filename:file.name,type:file.type||guessFileMime(file.name),sizeKb:Math.round(file.size/1024),periodo:label,fecha:today(),carpeta:folder,subidoPor:user().nombre,dataUrl,url:'',estadoArchivo:'Guardado localmente en XIARA',comentarios:[]};
+     const item={id:uid('RH-DOC'),name:file.name,filename:file.name,type:file.type||guessFileMime(file.name),sizeKb:Math.round(file.size/1024),periodo:label,fecha:today(),carpeta:folder,subidoPor:user().nombre,dataUrl,url:'',estadoArchivo:'Preparando almacenamiento seguro',comentarios:[]};
      r.carpetas[folder]=r.carpetas[folder]||[]; r.carpetas[folder].unshift(item); r.docs=r.docs||[]; r.docs.unshift(item);
    }
    const fotoFile=document.getElementById('er_foto')?.files?.[0]||null;
@@ -4015,7 +4150,7 @@ async function attachPayrollPDFToEmployee(empId, nomId, pageIndex, filename){
    nom.estadoArchivo=nom.pdfEstado;
    setTimeout(async()=>{
      try{
-       const uploaded=await uploadXIARAFile(pdfFile,'rrhh_nominas',empId+'_'+nomId);
+       const uploaded=await uploadXIARAFile(pdfFile,`rrhh/${empId}/nominas`,nomId);
        if(uploaded?.url){ nom.pdfArchivo=uploaded; nom.pdfUrl=uploaded.url; nom.url=uploaded.url; nom.estadoArchivo='PDF individual subido a Storage'; nom.pdfEstado='PDF individual subido a Storage'; if(window.safeLocalSave) safeLocalSave(); else localSave(); }
      }catch(e){console.warn('Storage nómina pendiente',e);}
    },50);
@@ -4230,7 +4365,7 @@ window.uploadRRHHDocFromCard=async function(empId,key){
  const emp=db.rrhh.find(r=>r.id===empId); if(!emp)return alert('Empleado no encontrado.'); ensureEmployeeFolders(emp);
  const files=[...(document.getElementById(`rrhh_file_${empId}_${key}`)?.files||[])]; if(!files.length)return alert('Selecciona uno o más archivos.');
  const referencia=document.getElementById(`rrhh_ref_${empId}_${key}`)?.value||today();
- for(const f of files){const docId=uid('RH-DOC'), blobKey=`rrhh_${empId}_${key}_${docId}`; await idbPutFile(blobKey,f); const thumb=String(f.type||'').startsWith('image/')?await makeImageThumb(f,260,.72):''; const item={id:docId,name:f.name,filename:f.name,type:f.type||guessFileMime(f.name),sizeKb:Math.round(f.size/1024),periodo:referencia,fecha:today(),carpeta:key,subidoPor:user().nombre,blobKey,thumb,url:'',storagePath:'',estadoArchivo:'Guardado localmente en XIARA',comentarios:[]}; emp.carpetas[key].unshift(item); emp.docs=emp.docs||[]; emp.docs.unshift(item); setTimeout(async()=>{try{const up=await uploadXIARAFile(f,`rrhh/${empId}/${key}`,docId);const cur=db.rrhh.find(r=>r.id===empId);const d=cur?.carpetas?.[key]?.find(z=>z.id===docId);if(d&&up?.url){d.url=up.url;d.storagePath=up.storagePath||'';d.estadoArchivo='Subido a Storage';safeLocalSave();}}catch(e){}},50);}
+ for(const f of files){const docId=uid('RH-DOC'), blobKey=`rrhh_${empId}_${key}_${docId}`; await idbPutFile(blobKey,f); const thumb=String(f.type||'').startsWith('image/')?await makeImageThumb(f,260,.72):''; const item={id:docId,name:f.name,filename:f.name,type:f.type||guessFileMime(f.name),sizeKb:Math.round(f.size/1024),periodo:referencia,fecha:today(),carpeta:key,subidoPor:user().nombre,blobKey,thumb,url:'',storagePath:'',estadoArchivo:'Preparando almacenamiento seguro',comentarios:[]}; emp.carpetas[key].unshift(item); emp.docs=emp.docs||[]; emp.docs.unshift(item); setTimeout(async()=>{try{const up=await uploadXIARAFile(f,`rrhh/${empId}/${key}`,docId);const cur=db.rrhh.find(r=>r.id===empId);const d=cur?.carpetas?.[key]?.find(z=>z.id===docId);if(d&&up?.url){d.url=up.url;d.storagePath=up.storagePath||'';d.estadoArchivo='Guardado seguro';safeLocalSave();}}catch(e){}},50);}
  emp.historial=emp.historial||[]; emp.historial.unshift({at:now(),txt:`${files.length} archivo(s) subidos a carpeta ${key}`}); safeLocalSave(); alert('Archivo(s) subido(s) correctamente al empleado.'); viewEmployee(empId);
  }catch(e){console.error(e);alert('Error subiendo archivo RRHH: '+(e.message||e));}
 }
@@ -4261,7 +4396,7 @@ window.addRRHHDocComment=async function(empId,key,docId){
 window.deleteRRHHDoc=async function(empId,key,docId){
  if(!confirm('¿Eliminar este archivo del empleado?'))return;
  const emp=db.rrhh.find(r=>r.id===empId); if(!emp||!emp.carpetas||!emp.carpetas[key])return alert('Carpeta no encontrada.');
- const before=emp.carpetas[key].length; const doomed=emp.carpetas[key].find((d,i)=>String(d.id||i)===String(docId)); if(doomed?.blobKey) idbDeleteFile(doomed.blobKey); emp.carpetas[key]=emp.carpetas[key].filter((d,i)=>String(d.id||i)!==String(docId));
+ const before=emp.carpetas[key].length; const doomed=emp.carpetas[key].find((d,i)=>String(d.id||i)===String(docId)); if(doomed?.blobKey) idbDeleteFile(doomed.blobKey); if(doomed?.v6DocumentId) await xiaraDeleteLinkedV6(doomed); emp.carpetas[key]=emp.carpetas[key].filter((d,i)=>String(d.id||i)!==String(docId));
  emp.historial=emp.historial||[]; emp.historial.unshift({at:now(),txt:`Archivo eliminado de ${key}`});
  try{localSave();}catch(e){}
  alert(before-emp.carpetas[key].length?'Archivo eliminado.':'No se encontró el archivo.');
@@ -4348,7 +4483,7 @@ window.createDoc=async()=>{
    if(file.type.startsWith('text/')||file.name.toLowerCase().endsWith('.csv'))textPreview=await readFileText(file);
  }
  const id=uid('DOC');
- const uploaded=await uploadXIARAFile(file,'documentos',id);
+ const uploaded=await uploadXIARAFile(file,`documental/documentoCorporativo/${id}/${String(val('d_cat')||'otros').toLowerCase().replace(/[^a-z0-9_-]/g,'_')}`,id);
  const d={id,empresa_id:activeCompany,nombre:nombre||'Documento sin título',categoria:val('d_cat'),fecha:today(),vencimiento:val('d_venc'),estado:val('d_estado'),descripcion:val('d_desc'),subidoPor:user().nombre,filename:file?file.name:'',mimeType:file?file.type:'',sizeKb:file?Math.round(file.size/1024):0,archivo:uploaded,textPreview,ocrResultado:textPreview?'Texto leído automáticamente.':'Pendiente OCR/backend.',historial:[{at:now(),txt:'Documento subido'}]};
  db.documentos.unshift(d);await saveCloud('documentos',d);close()}
 window.viewDoc=id=>{const x=db.documentos.find(d=>d.id===id);if(!x)return;modal(`<h2>${x.nombre}</h2><p>${badge(x.estado)} ${x.categoria||''}</p><div class="grid two"><div class="card"><h3>Datos</h3><p><b>Archivo:</b> ${x.archivo?fileLink(x.archivo):(x.filename||'-')}<br><b>Tipo:</b> ${x.mimeType||'-'}<br><b>Tamaño:</b> ${x.sizeKb||0} KB<br><b>Vencimiento:</b> ${x.vencimiento||'-'}<br><b>Subido por:</b> ${x.subidoPor||'-'}</p><button onclick="sendDocEmail('${id}')">Reenviar por Gmail/email</button><button class="secondary" onclick="runOCRDoc('${id}')">Leer/OCR</button></div><div class="card"><h3>Lectura/OCR</h3><div class="preview-box">${x.textPreview||x.ocrResultado||'Sin lectura automática. PDF/JPG requiere OCR backend V4.8.6.'}</div></div></div><div class="card" style="margin-top:16px"><h3>Descripción</h3><p>${x.descripcion||'-'}</p></div>`)}
@@ -4593,7 +4728,7 @@ window.saveFactura=async()=>{
    const iva=(parsed.iva!==null && parsed.iva!==undefined) ? Number(parsed.iva) : +(base*ivaTipo/100).toFixed(2);
    const total=(parsed.total!==null && parsed.total!==undefined) ? Number(parsed.total) : +(base+iva).toFixed(2);
    const id=uid('FAC');
-   const uploaded=await uploadXIARAFile(file,'facturas',id);
+   const uploaded=await uploadXIARAFile(file,`finanzas/factura/${id}/factura_original`,id);
    const f={
      id,
      empresa_id:activeCompany,
@@ -4637,7 +4772,7 @@ window.attachModelo=id=>{const m=db.modelos.find(x=>x.id===id);modal(`<h2>Adjunt
 window.saveModeloPresentation=async id=>{
  const m=db.modelos.find(x=>x.id===id);
  const file=document.getElementById('mod_doc')?.files?.[0]||null;
- const uploaded=await uploadXIARAFile(file,'modelos_fiscales',id);
+ const uploaded=await uploadXIARAFile(file,`fiscalidad/modeloFiscal/${id}/declaracion`,id);
  const pres={name:file?file.name:'Presentación sin archivo',type:file?file.type:'',sizeKb:file?Math.round(file.size/1024):0,archivo:uploaded,observaciones:val('mod_obs'),firmadoPor:user().nombre,rol:user().rol,email:user().email,fechaFirma:now(),hash:'XIARA-'+uid('HASH')};
  m.presentaciones=m.presentaciones||[];m.presentaciones.unshift(pres);m.estado='Presentado';await saveCloud('modelos',m);await audit(`Modelo ${m.modelo} presentado y firmado por ${user().nombre}`);close()}
 window.clearModelo=async id=>{const m=db.modelos.find(x=>x.id===id);if(!confirm('¿Borrar presentaciones?'))return;m.presentaciones=[];m.estado='Pendiente';await saveCloud('modelos',m)}
@@ -4936,7 +5071,7 @@ window.openCartaPago=()=>{
 window.saveCartaPago=async()=>{
  const file=document.getElementById('cp_file')?.files?.[0]||null;
  const id=uid('CP');
- const uploaded=await uploadXIARAFile(file,'cartas_pago',id);
+ const uploaded=await uploadXIARAFile(file,`finanzas/cartaPago/${id}/justificante`,id);
  const cp={id,empresa_id:activeCompany,centro:val('cp_centro'),periodo:val('cp_periodo'),importe:+val('cp_importe')||0,archivo:file?file.name:'',archivoObj:uploaded,observaciones:val('cp_obs'),subidoPor:user().nombre,rol:user().rol,email:user().email,fecha:today(),firma:'XIARA-'+uid('FIRMA')+' · '+user().nombre+' · '+now()};
  db.cartasPago.unshift(cp);await saveCloud('cartasPago',cp);close();}
 window.applyCartaToCarga=async(id)=>{
@@ -5314,7 +5449,7 @@ function xiaraGuardarFechaBajaEmpleado(id){
 
 function renderInformes(){
  const el=document.getElementById('informes'); if(!el) return;
- el.innerHTML=header('INFORMES','Generador de informes por rango de fechas. Cada botón pide fecha desde y hasta y permite descargar PDF.',`<button class="secondary" onclick="xiaraOpenV6EntityDocs('informes','repositorioInformes','${activeCompany}','Repositorio de informes')">Docs V6</button>`)+`<div class="card"><h3>Informes disponibles</h3><div class="report-buttons">
+ el.innerHTML=header('INFORMES','Generador de informes por rango de fechas. Cada botón pide fecha desde y hasta y permite descargar PDF.',`<button class="secondary" onclick="xiaraOpenV6EntityDocs('informes','repositorioInformes','${activeCompany}','Repositorio de informes')">Repositorio</button>`)+`<div class="card"><h3>Informes disponibles</h3><div class="report-buttons">
  <button onclick="openInformeRango('iva')">Generar informe IVA</button>
  <button onclick="openInformeRango('accidentes')">Informe de ACCIDENTES</button>
  <button onclick="openInformeRango('bajasMedicas')">Bajas médicas</button>
@@ -5634,7 +5769,7 @@ function xiaraRenderVacCalendar(y,m){
 }
 window.xiaraRefreshVacCalendar=function(){const y=+val('vac_year')||new Date().getFullYear();const m=+val('vac_month')||new Date().getMonth()+1;const rows=xiaraVacationRowsForMonth(y,m); const el=document.getElementById('vac_calendar'); if(!el)return; el.innerHTML=`<h3>${new Date(y,m-1,1).toLocaleString('es-ES',{month:'long',year:'numeric'}).toUpperCase()}</h3>${xiaraRenderVacCalendar(y,m)}<h3>Listado mensual</h3><table><tr><th>Empleado</th><th>DNI</th><th>Desde</th><th>Hasta</th><th>Días</th></tr>${rows.map(r=>`<tr><td>${xiaraEsc(r.empleado)}</td><td>${xiaraEsc(r.dni)}</td><td>${formatDateES(r.desde)}</td><td>${formatDateES(r.hasta)}</td><td>${xiaraDaysInclusiveFixed(r.desde,r.hasta)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Sin vacaciones en este mes.</td></tr>'}</table>`;}
 function xiaraReportButtons(){return `<div class="report-buttons"><button onclick="openInformeRango('vacaciones')">📅 Vacaciones</button><button onclick="openInformeRango('iva')">📄 Informe IVA</button><button onclick="openInformeRango('accidentes')">📄 Informe ACCIDENTES</button><button onclick="openInformeRango('bajasMedicas')">📄 Bajas Médicas</button><button onclick="openInformeRango('costosNominas')">📄 Costos de nóminas</button><button onclick="openInformeRango('notificacionesVencidas')">📄 Notificaciones vencidas</button><button onclick="openInformeRango('alertas')">📄 ALERTAS</button><button onclick="openInformeRango('bajasVoluntarias')">📄 Bajas voluntarias</button><button onclick="openInformeRango('despidos')">📄 Despidos</button><button onclick="openInformeRango('empleadosActivos')">👥 Empleados activos</button></div>`;}
-function renderInformesPro(){const el=document.getElementById('informes'); if(!el)return; const y=new Date().getFullYear(),m=new Date().getMonth()+1; el.innerHTML=header('11. INFORMES','Calendario de vacaciones e informes por rango de fechas.',`<button class="secondary" onclick="xiaraOpenV6EntityDocs('informes','repositorioInformes','${activeCompany}','Repositorio de informes')">Docs V6</button>`)+`<div class="card informes-top-card"><h3>Informes disponibles</h3>${xiaraReportButtons()}<div class="xiara-safe-save">✅ Datos protegidos: se conserva la clave local ${LS} y se crea copia automática ${LS}_backup_auto. Este index no reinicia ni borra vacaciones, empleados ni documentos; además guarda snapshot protegido de RRHH.</div></div><div class="card"><h3>📅 Calendario Vacaciones</h3><div class="calendar-toolbar"><label>Año<input id="vac_year" type="number" value="${y}"></label><label>Mes<select id="vac_month">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i+1===m?'selected':''}>${new Date(2026,i,1).toLocaleString('es-ES',{month:'long'})}</option>`).join('')}</select></label><button onclick="xiaraRefreshVacCalendar()">Ver calendario</button></div><div id="vac_calendar"></div></div>`; setTimeout(xiaraRefreshVacCalendar,0);}
+function renderInformesPro(){const el=document.getElementById('informes'); if(!el)return; const y=new Date().getFullYear(),m=new Date().getMonth()+1; el.innerHTML=header('11. INFORMES','Calendario de vacaciones e informes por rango de fechas.',`<button class="secondary" onclick="xiaraOpenV6EntityDocs('informes','repositorioInformes','${activeCompany}','Repositorio de informes')">Repositorio</button>`)+`<div class="card informes-top-card"><h3>Informes disponibles</h3>${xiaraReportButtons()}<div class="xiara-safe-save">✅ Datos protegidos: se conserva la clave local ${LS} y se crea copia automática ${LS}_backup_auto. Este index no reinicia ni borra vacaciones, empleados ni documentos; además guarda snapshot protegido de RRHH.</div></div><div class="card"><h3>📅 Calendario Vacaciones</h3><div class="calendar-toolbar"><label>Año<input id="vac_year" type="number" value="${y}"></label><label>Mes<select id="vac_month">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i+1===m?'selected':''}>${new Date(2026,i,1).toLocaleString('es-ES',{month:'long'})}</option>`).join('')}</select></label><button onclick="xiaraRefreshVacCalendar()">Ver calendario</button></div><div id="vac_calendar"></div></div>`; setTimeout(xiaraRefreshVacCalendar,0);}
 function xiaraFilteredVacationReport(){const desde=xiaraDate(val('rep_desde')||val('inf_desde')),hasta=xiaraDate(val('rep_hasta')||val('inf_hasta'));const ciudad=(val('rep_ciudad')||'').toLowerCase().trim(),dni=(val('rep_dni')||'').toLowerCase().trim(),nombre=(val('rep_nombre')||'').toLowerCase().trim(),periodo=(val('rep_periodo')||'').toLowerCase().trim();return xiaraVacationRows().filter(r=>{const a=xiaraDate(r.desde),b=xiaraDate(r.hasta||r.desde);if(desde&&xiaraDateKey(b||a)<xiaraDateKey(desde))return false;if(hasta&&xiaraDateKey(a)>xiaraDateKey(hasta))return false;if(ciudad){const rc=xiaraNormalizeText((r.ciudad||'')+' '+(r.ciudadCode||'')); const fc=xiaraNormalizeText(ciudad); if(!rc.includes(fc))return false;}if(dni&&!String(r.dni||'').toLowerCase().includes(dni))return false;if(nombre&&!String(r.empleado||'').toLowerCase().includes(nombre))return false;if(periodo){const ps=periodo.split(',').map(x=>x.trim()).filter(Boolean);const years=[xiaraDate(r.desde)?.getFullYear(),xiaraDate(r.hasta)?.getFullYear()].filter(Boolean).map(String);if(ps.length&&!ps.some(p=>years.includes(p)||String(r.periodo||'').includes(p)))return false;}return true;});}
 
 function xiaraVacationCitiesFromRRHH(){
@@ -5673,12 +5808,12 @@ window.openInformeRango=function(tipo){
 };
 window.xiaraPreviewVacationReport=function(){const rows=xiaraFilteredVacationReport();const el=document.getElementById('rep_preview');if(!el)return;el.innerHTML=`<h1>INFORME DE VACACIONES</h1><p class="muted">Generado: ${now()}</p><table><tr><th>Empleado</th><th>DNI</th><th>Ciudad</th><th>Periodo</th><th>Desde</th><th>Hasta</th><th>Días</th></tr>${rows.map(r=>`<tr><td>${xiaraEsc(r.empleado)}</td><td>${xiaraEsc(r.dni)}</td><td>${xiaraEsc(r.ciudad)}</td><td>${xiaraEsc(r.periodo)}</td><td>${formatDateES(r.desde)}</td><td>${formatDateES(r.hasta)}</td><td>${xiaraDaysInclusiveFixed(r.desde,r.hasta)}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">Sin datos para los filtros seleccionados.</td></tr>'}</table>`;};
 window.xiaraExportVacationCSV=function(){const rows=xiaraFilteredVacationReport();if(!rows.length)return alert('No hay datos para exportar con estos filtros.');const keys=['empleado','dni','ciudad','periodo','desde','hasta','dias'];const csv=[keys.join(';'),...rows.map(r=>keys.map(k=>`"${String(k==='dias'?xiaraDaysInclusiveFixed(r.desde,r.hasta):(r[k]??'')).replace(/"/g,'""')}"`).join(';'))].join('\n');download(`informe_vacaciones_${today()}.csv`,csv,'text/csv;charset=utf-8');};
-function renderFirmaDigitalPro(){const el=document.getElementById('firmaDigital'); if(!el)return; const firmas=byCo(db.firmas||[]); el.innerHTML=header('10. FIRMA DIGITAL','Tres proveedores de firma, una sola plataforma.','<button onclick="xiaraOpenFirma()">+ Nueva solicitud de firma</button>')+`<div class="grid three"><div class="firma-provider"><h3>Signaturit</h3><p>Firma avanzada con branding personalizable, marca de agua e informe de auditoría.</p></div><div class="firma-provider"><h3>Signe</h3><p>OTP por SMS, firma biométrica en pantallas táctiles y certificados digitales.</p></div><div class="firma-provider"><h3>Sphere Sign</h3><p>Autoridad de certificación española. Firma individual, múltiple paralela y secuencial.</p></div></div><div class="card" style="margin-top:16px"><h3>Seguimiento de firmas</h3>${table(firmas,[['Documento','documento'],['Empleado','empleado'],['Tipo','tipoFirma'],['Proveedor','proveedor'],['Estado','estado',x=>`<span class="firma-status fs-${String(x.estado||'pendiente').toLowerCase().replace(/ /g,'')}">${x.estado||'Pendiente'}</span>`],['Recordatorios','recordatorios',x=>x.recordatorios||0]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('firma','solicitudFirma','${x.id}','${String(x.documento||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="secondary" onclick="xiaraFirmaEstado('${x.id}','Firmado')">Firmado</button><button class="secondary" onclick="xiaraRecordarFirma('${x.id}')">Recordatorio</button><button class="danger" onclick="xiaraFirmaEstado('${x.id}','Rechazado')">Rechazado</button>`)}</div>`;}
+function renderFirmaDigitalPro(){const el=document.getElementById('firmaDigital'); if(!el)return; const firmas=byCo(db.firmas||[]); el.innerHTML=header('10. FIRMA DIGITAL','Tres proveedores de firma, una sola plataforma.','<button onclick="xiaraOpenFirma()">+ Nueva solicitud de firma</button>')+`<div class="grid three"><div class="firma-provider"><h3>Signaturit</h3><p>Firma avanzada con branding personalizable, marca de agua e informe de auditoría.</p></div><div class="firma-provider"><h3>Signe</h3><p>OTP por SMS, firma biométrica en pantallas táctiles y certificados digitales.</p></div><div class="firma-provider"><h3>Sphere Sign</h3><p>Autoridad de certificación española. Firma individual, múltiple paralela y secuencial.</p></div></div><div class="card" style="margin-top:16px"><h3>Seguimiento de firmas</h3>${table(firmas,[['Documento','documento'],['Empleado','empleado'],['Tipo','tipoFirma'],['Proveedor','proveedor'],['Estado','estado',x=>`<span class="firma-status fs-${String(x.estado||'pendiente').toLowerCase().replace(/ /g,'')}">${x.estado||'Pendiente'}</span>`],['Recordatorios','recordatorios',x=>x.recordatorios||0]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('firma','solicitudFirma','${x.id}','${String(x.documento||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="secondary" onclick="xiaraFirmaEstado('${x.id}','Firmado')">Firmado</button><button class="secondary" onclick="xiaraRecordarFirma('${x.id}')">Recordatorio</button><button class="danger" onclick="xiaraFirmaEstado('${x.id}','Rechazado')">Rechazado</button>`)}</div>`;}
 window.xiaraOpenFirma=function(){const emps=byCo(db.rrhh); modal(`<button class="xiara-modal-x" onclick="closeModal()">X</button><h2>Nueva solicitud de firma</h2><div class="form"><label>Empleado<select id="firma_emp">${emps.map(e=>`<option value="${e.id}">${xiaraEsc(e.nombre)}</option>`).join('')}</select></label><label>Documento<input id="firma_doc" placeholder="Contrato, nómina, acuerdo de confidencialidad..."></label><div class="row"><label>Tipo de firma<select id="firma_tipo"><option>Simple</option><option>Avanzada</option><option>OTP / Biométrica</option><option>Cualificada</option></select></label><label>Proveedor<select id="firma_prov"><option>Signaturit</option><option>Signe</option><option>Sphere Sign</option></select></label></div><button onclick="xiaraCrearFirma()">Crear solicitud</button></div>`);}
 window.xiaraCrearFirma=function(){const e=db.rrhh.find(r=>r.id===val('firma_emp'));const f={id:uid('FIR'),empresa_id:activeCompany,empleado:e?.nombre||'',empleado_id:e?.id||'',documento:val('firma_doc')||'Documento',tipoFirma:val('firma_tipo'),proveedor:val('firma_prov'),estado:'Pendiente',recordatorios:0,fecha:today(),historial:[{at:now(),txt:'Solicitud creada'}]};db.firmas.unshift(f);localSave();close();renderAll();}
 window.xiaraFirmaEstado=function(id,estado){const f=db.firmas.find(x=>x.id===id);if(!f)return;f.estado=estado;f.historial=f.historial||[];f.historial.unshift({at:now(),txt:'Estado cambiado a '+estado});localSave();renderAll();}
 window.xiaraRecordarFirma=function(id){const f=db.firmas.find(x=>x.id===id);if(!f)return;f.recordatorios=(f.recordatorios||0)+1;f.historial=f.historial||[];f.historial.unshift({at:now(),txt:'Recordatorio enviado'});localSave();renderAll();alert('Recordatorio registrado para '+f.empleado);}
-function renderFiscalidadPro(){const el=document.getElementById('fiscalidad'); if(!el)return; const f=byCo(db.finanzas)[0]||{},fac=byCo(db.facturas); const iva=(f.ivaRepercutido||0)-(f.ivaSoportado||0); const modelos=['303','390','111','190','347','415','SII']; el.innerHTML=header('12. FISCALIDAD','IVA, IGIC, retenciones, modelos, histórico y SII.','<button onclick="xiaraAddFiscalHistorico()">+ Registrar declaración</button>')+`<div class="grid four"><div class="fiscal-card"><b>IVA pendiente</b><div class="metric">${money(iva)}</div></div><div class="fiscal-card"><b>IGIC pendiente</b><div class="metric">${money(0)}</div></div><div class="fiscal-card"><b>Retenciones</b><div class="metric">${money(f.irpf||0)}</div></div><div class="fiscal-card"><b>Facturas fiscales</b><div class="metric">${fac.length}</div></div></div><div class="grid two" style="margin-top:16px"><div class="card"><h3>Modelos fiscales</h3>${table(modelos.map(m=>({modelo:m,nombre:{303:'IVA trimestral',390:'Resumen anual IVA',111:'Retenciones',190:'Resumen anual retenciones',347:'Operaciones > 3005€',415:'Canarias',SII:'Suministro Inmediato de Información'}[m],estado:'Preparado'})),[['Modelo','modelo'],['Nombre','nombre'],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="openInformeRango('${x.modelo==='415'?'iva':x.modelo==='111'||x.modelo==='190'?'iva':'iva'}')">Informe</button>`)}</div><div class="card"><h3>Panel IVA / IGIC</h3><p><b>IVA repercutido:</b> ${money(f.ivaRepercutido||0)}<br><b>IVA soportado:</b> ${money(f.ivaSoportado||0)}<br><b>Resultado:</b> ${money(iva)}</p><p class="muted">La presentación telemática real en AEAT/SII queda preparada para integración futura con certificado/API autorizada.</p></div></div><div class="card" style="margin-top:16px"><h3>Facturas con impacto fiscal</h3>${table(fac,[['Factura','id'],['Proveedor/Cliente','proveedor'],['Fecha','fecha'],['Base','base',x=>money(x.base)],['IVA/IGIC','iva',x=>money(x.iva)],['Modelo','modelo',x=>x.modelo||'303']],x=>`<button class="secondary" onclick="editFactura&&editFactura('${x.id}')">Abrir</button><button class="secondary" onclick="xiaraViewV6FinanceDocs('${x.id}')">Docs V6</button>`)}</div><div class="card" style="margin-top:16px"><h3>Histórico declaraciones complementarias / sustitutivas</h3>${table(byCo(db.fiscalHistorico||[]),[['Modelo','modelo'],['Periodo','periodo'],['Tipo','tipo'],['Fecha','fecha'],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('fiscalidad','declaracionFiscal','${x.id}','${String((x.modelo||'Modelo')+' '+(x.periodo||'')).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="db.fiscalHistorico=db.fiscalHistorico.filter(h=>h.id!=='${x.id}');localSave();renderAll()">Eliminar</button>`)}</div>`;}
+function renderFiscalidadPro(){const el=document.getElementById('fiscalidad'); if(!el)return; const f=byCo(db.finanzas)[0]||{},fac=byCo(db.facturas); const iva=(f.ivaRepercutido||0)-(f.ivaSoportado||0); const modelos=['303','390','111','190','347','415','SII']; el.innerHTML=header('12. FISCALIDAD','IVA, IGIC, retenciones, modelos, histórico y SII.','<button onclick="xiaraAddFiscalHistorico()">+ Registrar declaración</button>')+`<div class="grid four"><div class="fiscal-card"><b>IVA pendiente</b><div class="metric">${money(iva)}</div></div><div class="fiscal-card"><b>IGIC pendiente</b><div class="metric">${money(0)}</div></div><div class="fiscal-card"><b>Retenciones</b><div class="metric">${money(f.irpf||0)}</div></div><div class="fiscal-card"><b>Facturas fiscales</b><div class="metric">${fac.length}</div></div></div><div class="grid two" style="margin-top:16px"><div class="card"><h3>Modelos fiscales</h3>${table(modelos.map(m=>({modelo:m,nombre:{303:'IVA trimestral',390:'Resumen anual IVA',111:'Retenciones',190:'Resumen anual retenciones',347:'Operaciones > 3005€',415:'Canarias',SII:'Suministro Inmediato de Información'}[m],estado:'Preparado'})),[['Modelo','modelo'],['Nombre','nombre'],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="openInformeRango('${x.modelo==='415'?'iva':x.modelo==='111'||x.modelo==='190'?'iva':'iva'}')">Informe</button>`)}</div><div class="card"><h3>Panel IVA / IGIC</h3><p><b>IVA repercutido:</b> ${money(f.ivaRepercutido||0)}<br><b>IVA soportado:</b> ${money(f.ivaSoportado||0)}<br><b>Resultado:</b> ${money(iva)}</p><p class="muted">La presentación telemática real en AEAT/SII queda preparada para integración futura con certificado/API autorizada.</p></div></div><div class="card" style="margin-top:16px"><h3>Facturas con impacto fiscal</h3>${table(fac,[['Factura','id'],['Proveedor/Cliente','proveedor'],['Fecha','fecha'],['Base','base',x=>money(x.base)],['IVA/IGIC','iva',x=>money(x.iva)],['Modelo','modelo',x=>x.modelo||'303']],x=>`<button class="secondary" onclick="editFactura&&editFactura('${x.id}')">Abrir</button><button class="secondary" onclick="xiaraViewV6FinanceDocs('${x.id}')">Repositorio</button>`)}</div><div class="card" style="margin-top:16px"><h3>Histórico declaraciones complementarias / sustitutivas</h3>${table(byCo(db.fiscalHistorico||[]),[['Modelo','modelo'],['Periodo','periodo'],['Tipo','tipo'],['Fecha','fecha'],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('fiscalidad','declaracionFiscal','${x.id}','${String((x.modelo||'Modelo')+' '+(x.periodo||'')).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="db.fiscalHistorico=db.fiscalHistorico.filter(h=>h.id!=='${x.id}');localSave();renderAll()">Eliminar</button>`)}</div>`;}
 window.xiaraAddFiscalHistorico=function(){modal(`<button class="xiara-modal-x" onclick="closeModal()">X</button><h2>Registrar declaración fiscal</h2><div class="form"><div class="row"><input id="fh_modelo" placeholder="Modelo 303, 390, 111..."><input id="fh_periodo" placeholder="Periodo ej: 2026 T1"></div><div class="row"><select id="fh_tipo"><option>Ordinaria</option><option>Complementaria</option><option>Sustitutiva</option></select><select id="fh_estado"><option>Presentado</option><option>Pendiente</option><option>Requerido</option></select></div><button onclick="db.fiscalHistorico.unshift({id:uid('FH'),empresa_id:activeCompany,modelo:val('fh_modelo'),periodo:val('fh_periodo'),tipo:val('fh_tipo'),estado:val('fh_estado'),fecha:today()});localSave();close();renderAll();">Guardar</button></div>`);}
 
 function xiaraSlugMeeting(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,70)||uid('SALA');}
@@ -5688,7 +5823,7 @@ function xiaraConfBadge(c){const s=xiaraConfStatus(c);const cls=s==='En curso'?'
 function xiaraConfPeopleText(c){const internos=(c.invitadosInternos||[]).map(id=>(db.usuarios||[]).find(u=>u.id===id)?.nombre).filter(Boolean);const externos=(c.invitadosExternos||[]).filter(Boolean);return [...internos,...externos].join(', ')||'Sin invitados';}
 function renderConferenciaPro(){const el=document.getElementById('conferencia');if(!el)return;xiaraEnsureExtended();const arr=byCo(db.conferencias||[]).sort((a,b)=>String((a.fecha||'')+' '+(a.hora||'')).localeCompare(String((b.fecha||'')+' '+(b.hora||''))));const total=arr.length,curso=arr.filter(x=>xiaraConfStatus(x)==='En curso').length,prog=arr.filter(x=>xiaraConfStatus(x)==='Programada').length;const y=new Date().getFullYear(),m=new Date().getMonth()+1;el.innerHTML=`<div class="conf-hero"><h2>🎥 Conferencia interna XIARA</h2><p>Reuniones internas con calendario, invitados por usuario XIARA o email externo, sala integrada y enlace seguro de acceso. Funciona gratis para pruebas usando salas Jitsi embebidas.</p><button onclick="xiaraOpenConference()">+ Crear conferencia</button><button class="secondary" onclick="xiaraRefreshConferenceCalendar()">Actualizar calendario</button></div><div class="conf-kpis"><div class="conf-kpi"><span class="muted">Conferencias</span><b>${total}</b></div><div class="conf-kpi"><span class="muted">Programadas</span><b>${prog}</b></div><div class="conf-kpi"><span class="muted">En curso</span><b>${curso}</b></div><div class="conf-kpi"><span class="muted">Usuarios XIARA</span><b>${byCo(db.usuarios||[]).length}</b></div></div><div class="conf-layout"><div class="card"><div class="top" style="margin-bottom:8px"><div><h3 style="margin:0">📅 Almanaque de conferencias</h3><span class="muted">Visualización mensual de reuniones creadas.</span></div><div class="calendar-toolbar" style="margin:0"><label>Año<input id="conf_year" type="number" value="${y}"></label><label>Mes<select id="conf_month">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i+1===m?'selected':''}>${new Date(2026,i,1).toLocaleString('es-ES',{month:'long'})}</option>`).join('')}</select></label><button class="secondary" onclick="xiaraRefreshConferenceCalendar()">Ver</button></div></div><div id="confCalendar">${xiaraConferenceCalendarHtml(y,m)}</div></div><div class="card"><h3>🎙️ Próximas reuniones</h3>${arr.length?arr.map(c=>xiaraConferenceCardHtml(c)).join(''):'<div class="notice-box">Todavía no hay conferencias creadas.</div>'}</div></div>`;}
 function xiaraConferenceCalendarHtml(year,month){const arr=byCo(db.conferencias||[]);const first=new Date(year,month-1,1),daysIn=new Date(year,month,0).getDate();let html='<div class="conf-calendar">'+['L','M','X','J','V','S','D'].map(d=>`<div class="conf-day conf-day-head">${d}</div>`).join('');let offset=(first.getDay()+6)%7;for(let i=0;i<offset;i++)html+='<div class="conf-day" style="background:#f8fafc"></div>';for(let d=1;d<=daysIn;d++){const date=`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;const ev=arr.filter(c=>c.fecha===date);html+=`<div class="conf-day"><div class="conf-date">${d}</div>${ev.map(c=>`<span class="conf-event" onclick="xiaraOpenConferenceRoom('${c.id}')">${xiaraEsc(c.hora||'--:--')} · ${xiaraEsc(c.titulo||'Reunión')}</span>`).join('')}</div>`;}html+='</div>';return html;}
-function xiaraConferenceCardHtml(c){return `<div class="conf-meeting-card"><h3>${xiaraEsc(c.titulo||'Conferencia')}</h3><div>${xiaraConfBadge(c)} <span class="conf-pill">📅 ${xiaraEsc(c.fecha||'-')}</span><span class="conf-pill">🕒 ${xiaraEsc(c.hora||'-')} · ${Number(c.duracion)||60} min</span></div><p class="muted"><b>Invitados:</b> ${xiaraEsc(xiaraConfPeopleText(c))}</p><p>${xiaraEsc(c.descripcion||'')}</p><button onclick="xiaraOpenConferenceRoom('${c.id}')">Entrar a sala</button><button class="secondary" onclick="xiaraCopyConferenceLink('${c.id}')">Copiar enlace</button><button class="secondary" onclick="xiaraOpenConference('${c.id}')">Editar</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('conferencia','conferencia','${c.id}','${String(c.titulo||c.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="secondary" onclick="xiaraSendConferenceReminder('${c.id}')">Recordatorio</button><button class="danger" onclick="xiaraDeleteConference('${c.id}')">Eliminar</button></div>`;}
+function xiaraConferenceCardHtml(c){return `<div class="conf-meeting-card"><h3>${xiaraEsc(c.titulo||'Conferencia')}</h3><div>${xiaraConfBadge(c)} <span class="conf-pill">📅 ${xiaraEsc(c.fecha||'-')}</span><span class="conf-pill">🕒 ${xiaraEsc(c.hora||'-')} · ${Number(c.duracion)||60} min</span></div><p class="muted"><b>Invitados:</b> ${xiaraEsc(xiaraConfPeopleText(c))}</p><p>${xiaraEsc(c.descripcion||'')}</p><button onclick="xiaraOpenConferenceRoom('${c.id}')">Entrar a sala</button><button class="secondary" onclick="xiaraCopyConferenceLink('${c.id}')">Copiar enlace</button><button class="secondary" onclick="xiaraOpenConference('${c.id}')">Editar</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('conferencia','conferencia','${c.id}','${String(c.titulo||c.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="secondary" onclick="xiaraSendConferenceReminder('${c.id}')">Recordatorio</button><button class="danger" onclick="xiaraDeleteConference('${c.id}')">Eliminar</button></div>`;}
 window.xiaraRefreshConferenceCalendar=function(){const y=Number(val('conf_year'))||new Date().getFullYear();const m=Number(val('conf_month'))||new Date().getMonth()+1;const el=document.getElementById('confCalendar');if(el)el.innerHTML=xiaraConferenceCalendarHtml(y,m);}
 window.xiaraOpenConference=function(id=''){xiaraEnsureExtended();const c=(db.conferencias||[]).find(x=>x.id===id)||{id:'',titulo:'',fecha:today(),hora:'10:00',duracion:60,tipo:'Reunión interna',descripcion:'',invitadosInternos:[],invitadosExternos:[]};const users=byCo(db.usuarios||[]);modal(`<button class="xiara-modal-x" onclick="closeModal()">×</button><h2>${id?'Editar':'Crear'} conferencia</h2><div class="grid two"><div class="card"><h3>Datos de la reunión</h3><div class="form"><input id="conf_titulo" placeholder="Título de la conferencia" value="${xiaraEsc(c.titulo)}"><div class="conf-form-grid"><label>Fecha<input id="conf_fecha" type="date" value="${c.fecha||today()}"></label><label>Hora<input id="conf_hora" type="time" value="${c.hora||'10:00'}"></label><label>Duración minutos<input id="conf_duracion" type="number" value="${c.duracion||60}"></label><label>Tipo<select id="conf_tipo"><option>Reunión interna</option><option>Auditoría</option><option>RRHH</option><option>Fiscalidad</option><option>Legal</option><option>Emergencia</option></select></label><textarea class="full" id="conf_descripcion" placeholder="Descripción / agenda">${xiaraEsc(c.descripcion||'')}</textarea></div></div></div><div class="card"><h3>Invitados</h3><div class="conf-invite-box"><b>Usuarios internos XIARA</b><div class="conf-user-list">${users.map(u=>`<label class="conf-user-row"><input type="checkbox" class="conf_user_check" value="${u.id}" ${(c.invitadosInternos||[]).includes(u.id)?'checked':''}> <span><b>${xiaraEsc(u.nombre)}</b><br><span class="muted">${xiaraEsc(u.rol||'')} · ${xiaraEsc(u.email||'')}</span></span></label>`).join('')||'<span class="muted">Sin usuarios internos.</span>'}</div></div><label>Emails externos separados por coma o salto de línea<textarea id="conf_externos" placeholder="cliente@email.com, asesor@email.com">${xiaraEsc((c.invitadosExternos||[]).join('\n'))}</textarea></label><div class="notice-box">La invitación queda registrada dentro de XIARA. Para enviar por correo real puede copiar el enlace de la sala y enviarlo desde Gmail.</div></div></div><div style="margin-top:12px;text-align:right"><button onclick="xiaraSaveConference('${id}')">${id?'Actualizar':'Crear'} conferencia</button><button class="secondary" onclick="closeModal()">Cancelar</button></div>`);const tipo=document.getElementById('conf_tipo');if(tipo)tipo.value=c.tipo||'Reunión interna';}
 window.xiaraSaveConference=function(id=''){xiaraEnsureExtended();const internos=[...document.querySelectorAll('.conf_user_check:checked')].map(x=>x.value);const externos=String(val('conf_externos')).split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);let c=(db.conferencias||[]).find(x=>x.id===id);if(!c){c={id:uid('CONF'),empresa_id:activeCompany,estado:'Programada',creadoPor:user().nombre,creadoAt:now(),historial:[]};db.conferencias.unshift(c);}c.titulo=val('conf_titulo')||'Conferencia XIARA';c.fecha=val('conf_fecha')||today();c.hora=val('conf_hora')||'10:00';c.duracion=Number(val('conf_duracion'))||60;c.tipo=val('conf_tipo')||'Reunión interna';c.descripcion=val('conf_descripcion');c.invitadosInternos=internos;c.invitadosExternos=externos;c.roomName=xiaraConfRoomName(c);c.link='https://meet.jit.si/'+encodeURIComponent(c.roomName);c.historial=c.historial||[];c.historial.unshift({at:now(),txt:(id?'Actualizada':'Creada')+' por '+user().nombre});localSave();closeModal();renderAll();}
@@ -5799,12 +5934,12 @@ function renderAgendaPro(){
   <div class="grid two" style="margin-top:16px">
     <div class="card">
       <h3>📅 Reuniones agendadas desde Conferencia</h3>
-      ${confs.length?confs.map(c=>`<div class="agenda-task-card"><b>${xiaraEsc(c.titulo||'Conferencia')}</b><br><span class="muted">${xiaraEsc(c.fecha||'')} ${xiaraEsc(c.hora||'')} · ${xiaraEsc(c.tipo||'Reunión interna')} · ${xiaraEsc(c.estado||'Programada')}</span><p>${xiaraEsc(c.descripcion||'Sin orden del día.')}</p><button onclick="xiaraOpenConferenceRoom('${c.id}')">Entrar a sala</button><button class="secondary" onclick="xiaraCreateTaskFromConference('${c.id}')">Crear tarea/orden del día</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('conferencia','conferencia','${c.id}','${String(c.titulo||c.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="secondary" onclick="xiaraCopyConferenceLink('${c.id}')">Copiar enlace</button></div>`).join(''):'<p class="muted">No hay conferencias registradas. Puedes crearlas desde el menú 8. CONFERENCIA.</p>'}
+      ${confs.length?confs.map(c=>`<div class="agenda-task-card"><b>${xiaraEsc(c.titulo||'Conferencia')}</b><br><span class="muted">${xiaraEsc(c.fecha||'')} ${xiaraEsc(c.hora||'')} · ${xiaraEsc(c.tipo||'Reunión interna')} · ${xiaraEsc(c.estado||'Programada')}</span><p>${xiaraEsc(c.descripcion||'Sin orden del día.')}</p><button onclick="xiaraOpenConferenceRoom('${c.id}')">Entrar a sala</button><button class="secondary" onclick="xiaraCreateTaskFromConference('${c.id}')">Crear tarea/orden del día</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('conferencia','conferencia','${c.id}','${String(c.titulo||c.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="secondary" onclick="xiaraCopyConferenceLink('${c.id}')">Copiar enlace</button></div>`).join(''):'<p class="muted">No hay conferencias registradas. Puedes crearlas desde el menú 8. CONFERENCIA.</p>'}
     </div>
     <div class="card">
       <h3>✅ Tareas y órdenes del día</h3>
       <table><thead><tr><th>Fecha</th><th>Título</th><th>Responsable</th><th>Prioridad</th><th>Estado</th><th>Acciones</th></tr></thead>
-      <tbody>${tasks.map(t=>`<tr><td>${fmt(t.fecha)}</td><td><b>${xiaraEsc(t.titulo||'')}</b><br><span class="muted">${xiaraEsc(t.descripcion||'')}</span>${t.origenConferenciaId?'<br><span class="badge pb">Conferencia</span>':''}</td><td>${xiaraEsc(t.responsable||'')}</td><td><span class="agenda-priority">${xiaraEsc(t.prioridad||'Media')}</span></td><td>${xiaraEsc(t.estado||'Pendiente')}</td><td><button class="secondary" onclick="openAgendaTask('${t.id}')">Editar</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('agenda','tarea','${t.id}','${String(t.titulo||t.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteAgendaTask('${t.id}')">Eliminar</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">Sin tareas registradas.</td></tr>'}</tbody></table>
+      <tbody>${tasks.map(t=>`<tr><td>${fmt(t.fecha)}</td><td><b>${xiaraEsc(t.titulo||'')}</b><br><span class="muted">${xiaraEsc(t.descripcion||'')}</span>${t.origenConferenciaId?'<br><span class="badge pb">Conferencia</span>':''}</td><td>${xiaraEsc(t.responsable||'')}</td><td><span class="agenda-priority">${xiaraEsc(t.prioridad||'Media')}</span></td><td>${xiaraEsc(t.estado||'Pendiente')}</td><td><button class="secondary" onclick="openAgendaTask('${t.id}')">Editar</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('agenda','tarea','${t.id}','${String(t.titulo||t.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteAgendaTask('${t.id}')">Eliminar</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">Sin tareas registradas.</td></tr>'}</tbody></table>
     </div>
   </div>`;
 }
