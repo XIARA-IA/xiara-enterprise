@@ -928,32 +928,90 @@ function xiaraScheduleSnapshotRefresh(){
  },180);
 }
 
+const XIARA_ALL_SNAPSHOT_COLS=['empresas','usuarios','notificaciones','laborales','finanzas','compliance','rrhh','documentos','socios','jurisprudencia','plantillas','facturas','modelos','casosJudiciales','conciliaciones','audit'];
+const XIARA_CORE_SNAPSHOT_COLS=['empresas','usuarios','notificaciones','laborales','finanzas','facturas','modelos','audit'];
+
+const XIARA_SECTION_SNAPSHOT_MAP={
+ dashboard:['empresas','usuarios','notificaciones','laborales','finanzas','facturas','modelos','audit'],
+ notificaciones:['notificaciones'],
+ laborales:['laborales','casosJudiciales','conciliaciones','jurisprudencia','plantillas'],
+ finanzas:['finanzas','facturas','modelos'],
+ compliance:['compliance'],
+ rrhh:['rrhh'],
+ documentos:['documentos'],
+ socios:['socios'],
+ fiscalidad:['finanzas','facturas','modelos'],
+ empresas:['empresas'],
+ usuarios:['usuarios']
+};
+
+const xiaraSnapshotUnsubs=new Map();
+
+function xiaraStartSnapshotCollection(col){
+ if(!cloud || xiaraSnapshotUnsubs.has(col)) return;
+
+ try{
+   const unsub=onSnapshot(
+     collection(fs,col),
+     s=>{
+       const arr=s.docs.map(d=>({id:d.id,...d.data()}));
+
+       if(arr.length){
+         if(col==='rrhh' && rrhhImportLock) return;
+         db[col]=arr;
+       }
+
+       window.XIARA_PERF=window.XIARA_PERF||{};
+       XIARA_PERF.activeSnapshotListeners=xiaraSnapshotUnsubs.size;
+       XIARA_PERF.lastSnapshotCollection=col;
+       xiaraScheduleSnapshotRefresh();
+     },
+     err=>{
+       console.warn('XIARA snapshot error ['+col+']',err);
+     }
+   );
+
+   xiaraSnapshotUnsubs.set(col,unsub);
+   window.XIARA_PERF=window.XIARA_PERF||{};
+   XIARA_PERF.activeSnapshotListeners=xiaraSnapshotUnsubs.size;
+ }catch(e){
+   console.warn('XIARA V6: no se pudo iniciar listener '+col,e);
+ }
+}
+
+function xiaraEnsureSectionSnapshots(sectionId){
+ const cols=XIARA_SECTION_SNAPSHOT_MAP[sectionId]||[];
+ cols.forEach(xiaraStartSnapshotCollection);
+}
+
+function xiaraStartDeferredSnapshots(){
+ const start=()=>{
+   XIARA_ALL_SNAPSHOT_COLS.forEach((col,i)=>{
+     setTimeout(()=>xiaraStartSnapshotCollection(col),i*120);
+   });
+ };
+ if('requestIdleCallback' in window){
+   requestIdleCallback(start,{timeout:5000});
+ }else{
+   setTimeout(start,2500);
+ }
+}
+
 function subscribe(){
  if(subscribed||!cloud)return;
  subscribed=true;
 
- const cols=['empresas','usuarios','notificaciones','laborales','finanzas','compliance','rrhh','documentos','socios','jurisprudencia','plantillas','facturas','modelos','casosJudiciales','conciliaciones','audit'];
-
  window.XIARA_PERF=window.XIARA_PERF||{};
- XIARA_PERF.snapshotCollections=cols.length;
+ XIARA_PERF.snapshotCollections=XIARA_ALL_SNAPSHOT_COLS.length;
  XIARA_PERF.subscribeStartedAt=Date.now();
+ XIARA_PERF.lazySnapshots=true;
 
- cols.forEach(col=>onSnapshot(
-   collection(fs,col),
-   s=>{
-     const arr=s.docs.map(d=>({id:d.id,...d.data()}));
+ // Inicio rápido: solo colecciones necesarias para cabecera/dashboard.
+ XIARA_CORE_SNAPSHOT_COLS.forEach(xiaraStartSnapshotCollection);
 
-     if(arr.length){
-       if(col==='rrhh' && rrhhImportLock) return;
-       db[col]=arr;
-     }
-
-     xiaraScheduleSnapshotRefresh();
-   },
-   err=>{
-     console.warn('XIARA snapshot error ['+col+']',err);
-   }
- ));
+ // El resto se activa al entrar en su módulo o, si el usuario no entra,
+ // gradualmente cuando el navegador queda libre.
+ xiaraStartDeferredSnapshots();
 }
 
 function days(d){return d?Math.ceil((new Date(d)-new Date(today()))/86400000):999}
@@ -964,7 +1022,7 @@ function modal(html){document.getElementById('modalBox').innerHTML=html;document
 function selectors(){document.getElementById('companySel').innerHTML=db.empresas.map(e=>`<option value="${e.id}" ${e.id===activeCompany?'selected':''}>${e.nombre}</option>`).join('');document.getElementById('userSel').innerHTML=byCo(db.usuarios).map(u=>`<option value="${u.id}" ${u.id===activeUser?'selected':''}>${u.nombre} — ${u.rol}</option>`).join('');document.getElementById('sessionName').textContent=user().nombre;document.getElementById('sessionRole').textContent=user().rol}
 window.changeCompany=()=>{activeCompany=val('companySel');activeUser=byCo(db.usuarios)[0]?.id||activeUser;localSave();renderAll()}
 window.changeUser=()=>{activeUser=val('userSel');localSave();renderAll()}
-document.getElementById('nav').onclick=e=>{const b=e.target.closest('button');if(!b)return;document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));document.getElementById(b.dataset.s).classList.add('active');renderAll()}
+document.getElementById('nav').onclick=e=>{const b=e.target.closest('button');if(!b)return;const sectionId=b.dataset.s;document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));document.getElementById(sectionId).classList.add('active');xiaraEnsureSectionSnapshots(sectionId);renderAll()}
 
 function dash(){const n=byCo(db.notificaciones),l=byCo(db.laborales),f=byCo(db.finanzas)[0]||{},iva=(f.ivaRepercutido||0)-(f.ivaSoportado||0);document.getElementById('dashboard').innerHTML=header('Resumen ejecutivo','V4.8.6 estable · Legal, fiscal, RRHH y documental corregidos.',`<button onclick="syncDemo()">Sincronizar datos</button>`)+`<div class="grid five"><div class="card"><div class="muted">Notificaciones</div><div class="metric">${n.length}</div></div><div class="card"><div class="muted">Laborales</div><div class="metric">${l.length}</div></div><div class="card"><div class="muted">Facturas</div><div class="metric">${byCo(db.facturas).length}</div></div><div class="card"><div class="muted">IVA</div><div class="metric">${money(iva)}</div></div><div class="card"><div class="muted">Modelos</div><div class="metric">${byCo(db.modelos).length}</div></div></div><div class="card" style="margin-top:16px"><h3>Actividad</h3>${byCo(db.audit).slice(0,8).map(a=>`<div class="msg"><b>${a.user}</b>: ${a.txt}<br><span class="muted">${a.at}</span></div>`).join('')}</div>`}
 
@@ -1337,7 +1395,7 @@ window.xiaraCheckV6Health=async function(){
        Storage: ${storageHealth.ok?'OK':'NO'} · modo ${escHtml(storageHealth.mode||'-')}<br>
        Documentos: ${docsHealth.ok?'OK':'NO'}<br>
        Empresa activa: ${escHtml(activeCompany||'-')}<br>
-       <span class="muted">Listeners legacy: ${window.XIARA_PERF?.snapshotCollections||0} · último lote agrupado: ${window.XIARA_PERF?.lastSnapshotBatch||0}</span>
+       <span class="muted">Listeners activos: ${window.XIARA_PERF?.activeSnapshotListeners||0}/${window.XIARA_PERF?.snapshotCollections||0} · carga diferida: ${window.XIARA_PERF?.lazySnapshots?'sí':'no'} · último lote: ${window.XIARA_PERF?.lastSnapshotBatch||0}</span>
      </div>`;
  }catch(e){
    console.error('XIARA V6 health check',e);
