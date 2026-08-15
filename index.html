@@ -1035,6 +1035,27 @@ function xiaraV6EntityCategories(modulo){
      ['otros','Otros documentos']
    ];
  }
+ if(modulo==='empresas'){
+   return [
+     ['constitucion','Constitución / escrituras'],
+     ['cif','CIF / identificación fiscal'],
+     ['certificados','Certificados'],
+     ['licencias','Licencias / autorizaciones'],
+     ['seguros','Seguros'],
+     ['contratos','Contratos corporativos'],
+     ['otros','Otros documentos']
+   ];
+ }
+ if(modulo==='usuarios'){
+   return [
+     ['identificacion','Identificación'],
+     ['autorizaciones','Autorizaciones'],
+     ['permisos','Permisos / roles'],
+     ['firma','Firma / certificado'],
+     ['confidencialidad','Confidencialidad'],
+     ['otros','Otros documentos']
+   ];
+ }
  return [['otros','Otros documentos']];
 }
 
@@ -1048,6 +1069,8 @@ function xiaraV6ModuleLabel(modulo){
  if(modulo==='informes') return 'Informes';
  if(modulo==='conferencia') return 'Conferencia';
  if(modulo==='agenda') return 'Agenda / Tareas';
+ if(modulo==='empresas') return 'Empresas / Tenants';
+ if(modulo==='usuarios') return 'Usuarios y roles';
  if(modulo==='finanzas') return 'Finanzas';
  if(modulo==='legal') return 'Legal';
  return modulo||'XIARA';
@@ -1229,6 +1252,40 @@ window.xiaraUploadV6EntityDocument=async function(modulo,entidadTipo,entidadId){
  }
 }
 
+
+window.xiaraCheckV6Health=async function(){
+ const box=document.getElementById('xiaraV6HealthStatus');
+ if(!box) return;
+ box.innerHTML='<span class="muted">Comprobando servicios V6...</span>';
+ try{
+   const dbHealth=(window.XIARA&&XIARA.dbService&&XIARA.dbService.healthCheck)
+     ? await XIARA.dbService.healthCheck()
+     : {ok:false};
+
+   const storageHealth=(window.XIARA&&XIARA.storageService&&XIARA.storageService.healthCheck)
+     ? await XIARA.storageService.healthCheck()
+     : {ok:false};
+
+   const docsHealth=(window.XIARA&&XIARA.documents&&XIARA.documents.healthCheck)
+     ? await XIARA.documents.healthCheck()
+     : {ok:false};
+
+   const ok=!!(dbHealth.ok && storageHealth.ok && docsHealth.ok);
+
+   box.innerHTML=
+     `<div class="${ok?'cloud-ok':'warn-box'}">
+       <b>${ok?'Infraestructura V6 disponible':'Revisar infraestructura V6'}</b><br>
+       Firestore: ${dbHealth.ok?'OK':'NO'}<br>
+       Storage: ${storageHealth.ok?'OK':'NO'} · modo ${escHtml(storageHealth.mode||'-')}<br>
+       Documentos: ${docsHealth.ok?'OK':'NO'}<br>
+       Empresa activa: ${escHtml(activeCompany||'-')}
+     </div>`;
+ }catch(e){
+   console.error('XIARA V6 health check',e);
+   box.innerHTML='<div class="warn-box">No se pudo completar la comprobación V6: '+escHtml(e.message||String(e))+'</div>';
+ }
+}
+
 function renderMods(){
  document.getElementById('notificaciones').innerHTML=header('1. Notificaciones Oficiales','TGSS, DEHÚ, AEAT, INSS.',`<button onclick="openNotif()">+ Nueva notificación</button>`)+`<div class="card">${table(byCo(db.notificaciones),[['Código','id',x=>`<b>${x.id}</b><br><span class="muted">${x.concepto||''}</span>`],['Canal/Organismo','organismo',x=>`${x.canal||x.organismo||''}<br><span class="muted">${x.organismoNombre||''}</span>`],['Identificador','identificador',x=>`${x.identificador||''}<br><span class="muted">${x.dir3||''}</span>`],['Vencimiento','vencimiento',x=>`${x.vencimiento||'-'}<br>${urgency(x.vencimiento,x.estado)}`],['Estado','estado',x=>xiaraEstadoBadgeFecha(x)]],x=>`<button class="secondary" onclick="detail('notificaciones','${x.id}')">Abrir</button><button class="danger" onclick="deleteRecord('notificaciones','${x.id}')">Eliminar</button>`)}</div>`;
  renderLegalLaboralPRO();
@@ -1239,9 +1296,9 @@ function renderMods(){
  document.getElementById('documentos').innerHTML=header('6. Control Documental + OCR','Archivo corporativo, legal, fiscal, laboral y financiero.',`<button onclick="openDoc()">+ Documento</button>`)+`<div class="card">${table(byCo(db.documentos),[['Nombre','nombre'],['Categoría','categoria'],['Fecha','fecha'],['Vencimiento','vencimiento',x=>`${x.vencimiento||'-'}<br>${urgency(x.vencimiento,x.estado)}`],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="viewDoc('${x.id}')">Abrir</button><button class="secondary" onclick="editDoc('${x.id}')">Editar</button><button class="secondary" onclick="runOCRDoc('${x.id}')">OCR</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('documental','documentoCorporativo','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('documentos','${x.id}')">Eliminar</button>`)}</div>`;
  renderInformes();
  const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas y juntas.',`<button onclick="openSocio()">+ Socio</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('socios','socio','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
- document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`-`)}</div>`;
- document.getElementById('usuarios').innerHTML=header('Usuarios y roles','Usuarios vinculados solo a la empresa activa.',`<button onclick="openUser()">+ Usuario</button>`)+`<div class="card">${table(byCo(db.usuarios),[['Nombre','nombre'],['Rol','rol'],['Email','email']],x=>`<button class="danger" onclick="deleteRecord('usuarios','${x.id}')">Eliminar</button>`)}</div>`;
- document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div></div>`;
+ document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button>`)}</div>`;
+ document.getElementById('usuarios').innerHTML=header('Usuarios y roles','Usuarios vinculados solo a la empresa activa.',`<button onclick="openUser()">+ Usuario</button>`)+`<div class="card">${table(byCo(db.usuarios),[['Nombre','nombre'],['Rol','rol'],['Email','email']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('usuarios','usuario','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('usuarios','${x.id}')">Eliminar</button>`)}</div>`;
+ document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir Docs V6</button></div></div>`;
 }
 
 function legalFolderTemplate(){
