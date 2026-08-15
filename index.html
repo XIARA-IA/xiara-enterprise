@@ -934,14 +934,231 @@ function fileLink(f){
  return `<span class="file-chip">📎 ${f.url?`<a href="${f.url}" target="_blank">${f.name}</a>`:f.name}</span>`;
 }
 
+
+/* ============================================================
+   XIARA V6 - DOCUMENTOS COMUNES MULTIMODULO
+   Paso 9-12: Finanzas + Control Documental/OCR + RRHH
+   Mantiene intacto el almacenamiento legacy.
+   ============================================================ */
+
+function xiaraV6EntityCategories(modulo){
+ if(modulo==='rrhh'){
+   return [
+     ['nominas','Nóminas'],
+     ['contratos','Contratos'],
+     ['dniPermisos','DNI/NIE y permisos'],
+     ['bajasMedicas','Bajas médicas'],
+     ['vacaciones','Vacaciones'],
+     ['accidentes','Accidentes'],
+     ['otros','Otros documentos']
+   ];
+ }
+ if(modulo==='documental'){
+   return [
+     ['corporativo','Corporativo'],
+     ['legal','Legal'],
+     ['fiscal','Fiscal'],
+     ['laboral','Laboral'],
+     ['financiero','Financiero'],
+     ['ocr','OCR / extracción'],
+     ['otros','Otros documentos']
+   ];
+ }
+ return [['otros','Otros documentos']];
+}
+
+function xiaraV6ModuleLabel(modulo){
+ if(modulo==='rrhh') return 'Recursos Humanos';
+ if(modulo==='documental') return 'Control Documental / OCR';
+ if(modulo==='finanzas') return 'Finanzas';
+ if(modulo==='legal') return 'Legal';
+ return modulo||'XIARA';
+}
+
+function xiaraV6CategoryOptions(modulo){
+ return xiaraV6EntityCategories(modulo)
+   .map(([value,label])=>`<option value="${escHtml(value)}">${escHtml(label)}</option>`)
+   .join('');
+}
+
+function xiaraV6RenderDocsRows(docs){
+ if(!docs || !docs.length){
+   return '<div class="warn-box">Todavía no hay documentos V6 asociados a este registro. Los documentos legacy siguen disponibles y no se han modificado.</div>';
+ }
+ return docs.map(d=>`
+   <div class="sign-box" style="margin-bottom:8px">
+     <b>${escHtml(d.nombre||d.filename||d.id||'Documento')}</b>
+     <span style="float:right" class="badge">V6</span><br>
+     <span class="muted">
+       ${escHtml(d.categoria||'documento')} ·
+       ${escHtml(d.mimeType||'archivo')} ·
+       ${d.size ? Math.round(d.size/1024)+' KB' : '-'} ·
+       ${escHtml(d.estado||'disponible')}
+     </span><br>
+     <code>${escHtml(d.storagePath||'')}</code>
+     ${d.downloadUrl ? `<br><button class="secondary" style="margin-top:6px" onclick="window.open('${String(d.downloadUrl).replace(/'/g,"%27")}','_blank')">Abrir archivo V6</button>` : ''}
+   </div>
+ `).join('');
+}
+
+window.xiaraRefreshV6EntityDocs=async function(modulo,entidadTipo,entidadId){
+ const box=document.getElementById('xiaraV6CommonDocsList');
+ if(!box) return;
+ try{
+   if(!window.XIARA || !XIARA.documents || typeof XIARA.documents.listForEntity!=='function'){
+     box.innerHTML='<div class="warn-box">La capa documental V6 no está disponible.</div>';
+     return;
+   }
+   box.innerHTML='<p class="muted">Consultando metadatos V6...</p>';
+   const docs=await XIARA.documents.listForEntity({
+     empresaId:activeCompany,
+     modulo,
+     entidadTipo,
+     entidadId,
+     limit:100
+   });
+   box.innerHTML=xiaraV6RenderDocsRows(docs);
+ }catch(e){
+   console.error('XIARA V6: error leyendo documentos comunes',e);
+   box.innerHTML='<div class="warn-box">No se pudieron consultar los documentos V6. El contenido legacy permanece disponible.</div>';
+ }
+}
+
+window.xiaraOpenV6EntityDocs=async function(modulo,entidadTipo,entidadId,titulo){
+ const label=xiaraV6ModuleLabel(modulo);
+ modal(`
+   <h2>Documentos V6 — ${escHtml(titulo||entidadId)}</h2>
+   <div class="card">
+     <p><b>Módulo:</b> ${escHtml(label)}<br>
+     <b>Registro:</b> ${escHtml(entidadId)}<br>
+     <b>Empresa:</b> ${escHtml(activeCompany||'-')}</p>
+     <div class="warn-box">La documentación legacy permanece intacta durante esta migración.</div>
+   </div>
+
+   <div class="card" style="margin-top:16px">
+     <h3>Subir documento V6</h3>
+     <div class="row">
+       <select id="xiaraV6CommonCategoria">${xiaraV6CategoryOptions(modulo)}</select>
+       <input id="xiaraV6CommonFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.csv,.txt">
+     </div>
+     <button class="secondary" style="margin-top:8px"
+       onclick="xiaraUploadV6EntityDocument('${String(modulo).replace(/'/g,"")}','${String(entidadTipo).replace(/'/g,"")}','${String(entidadId).replace(/'/g,"")}')">
+       Subir archivo V6
+     </button>
+     <div id="xiaraV6CommonUploadPreview" class="muted" style="margin-top:8px">
+       Storage solo se habilitará durante esta operación y volverá a modo seguro al terminar.
+     </div>
+   </div>
+
+   <div class="card" style="margin-top:16px">
+     <h3>Documentos V6 asociados</h3>
+     <div id="xiaraV6CommonDocsList"><p class="muted">Consultando metadatos V6...</p></div>
+   </div>
+ `);
+
+ await xiaraRefreshV6EntityDocs(modulo,entidadTipo,entidadId);
+}
+
+window.xiaraUploadV6EntityDocument=async function(modulo,entidadTipo,entidadId){
+ const preview=document.getElementById('xiaraV6CommonUploadPreview');
+ const input=document.getElementById('xiaraV6CommonFile');
+ const category=document.getElementById('xiaraV6CommonCategoria');
+
+ if(!preview||!input||!category) return;
+
+ let storageTemporarilyEnabled=false;
+
+ try{
+   if(!input.files || !input.files.length){
+     preview.innerHTML='<span style="color:#b45309;font-weight:800">Selecciona primero un archivo.</span>';
+     return;
+   }
+
+   if(!window.XIARA || !XIARA.documents || typeof XIARA.documents.upload!=='function'){
+     preview.innerHTML='<span style="color:#b91c1c;font-weight:800">La capa documental V6 no está disponible.</span>';
+     return;
+   }
+
+   if(!XIARA.storageService || typeof XIARA.storageService.setEnabled!=='function'){
+     preview.innerHTML='<span style="color:#b91c1c;font-weight:800">El servicio Storage V6 no está disponible.</span>';
+     return;
+   }
+
+   const file=input.files[0];
+   const prepared=XIARA.documents.prepareUpload({
+     empresaId:activeCompany,
+     modulo,
+     entidadTipo,
+     entidadId,
+     categoria:category.value||'otros',
+     file,
+     source:modulo+'-v6-ui'
+   });
+
+   const ok=confirm(
+     'XIARA V6 va a guardar este archivo en Firebase Storage y sus metadatos en Firestore.\n\n'+
+     'Módulo: '+xiaraV6ModuleLabel(modulo)+'\n'+
+     'Archivo: '+file.name+'\n'+
+     'Ruta: '+prepared.storagePath+'\n\n'+
+     'Los documentos legacy no se modificarán.\n\n¿Continuar?'
+   );
+
+   if(!ok){
+     preview.innerHTML='<span class="muted">Subida cancelada. No se ha guardado nada.</span>';
+     return;
+   }
+
+   preview.innerHTML=
+     '<div class="cloud-ok"><b>Subiendo documento V6...</b><br>'+
+     'Archivo: '+escHtml(file.name)+'<br>'+
+     'Ruta: <code>'+escHtml(prepared.storagePath)+'</code></div>';
+
+   XIARA.storageService.setEnabled(true);
+   storageTemporarilyEnabled=true;
+
+   const saved=await XIARA.documents.upload({
+     empresaId:activeCompany,
+     modulo,
+     entidadTipo,
+     entidadId,
+     categoria:category.value||'otros',
+     file,
+     source:modulo+'-v6-ui'
+   });
+
+   preview.innerHTML=
+     '<div class="cloud-ok">'+
+       '<b>Documento V6 guardado correctamente.</b><br>'+
+       'Documento: '+escHtml(file.name)+'<br>'+
+       'ID: '+escHtml((saved&&saved.id)||'-')+'<br>'+
+       'Ruta: <code>'+escHtml((saved&&saved.storagePath)||prepared.storagePath||'-')+'</code><br>'+
+       '<span class="muted">Archivo en Storage + metadatos en Firestore. Legacy intacto.</span>'+
+     '</div>';
+
+   input.value='';
+   await xiaraRefreshV6EntityDocs(modulo,entidadTipo,entidadId);
+
+ }catch(e){
+   console.error('XIARA V6: error en subida común',e);
+   preview.innerHTML=
+     '<span style="color:#b91c1c;font-weight:800">No se pudo completar la subida V6: '+
+     escHtml(e && e.message ? e.message : String(e))+
+     '</span><br><span class="muted">No se ha eliminado ni reemplazado ningún documento legacy.</span>';
+ }finally{
+   if(storageTemporarilyEnabled){
+     try{ XIARA.storageService.setEnabled(false); }catch(_e){}
+   }
+ }
+}
+
 function renderMods(){
  document.getElementById('notificaciones').innerHTML=header('1. Notificaciones Oficiales','TGSS, DEHÚ, AEAT, INSS.',`<button onclick="openNotif()">+ Nueva notificación</button>`)+`<div class="card">${table(byCo(db.notificaciones),[['Código','id',x=>`<b>${x.id}</b><br><span class="muted">${x.concepto||''}</span>`],['Canal/Organismo','organismo',x=>`${x.canal||x.organismo||''}<br><span class="muted">${x.organismoNombre||''}</span>`],['Identificador','identificador',x=>`${x.identificador||''}<br><span class="muted">${x.dir3||''}</span>`],['Vencimiento','vencimiento',x=>`${x.vencimiento||'-'}<br>${urgency(x.vencimiento,x.estado)}`],['Estado','estado',x=>xiaraEstadoBadgeFecha(x)]],x=>`<button class="secondary" onclick="detail('notificaciones','${x.id}')">Abrir</button><button class="danger" onclick="deleteRecord('notificaciones','${x.id}')">Eliminar</button>`)}</div>`;
  renderLegalLaboralPRO();
  renderFinanzas();
  document.getElementById('compliance').innerHTML=header('4. Compliance & Riesgo','RGPD, seguros, contratos, licencias y vencimientos.',`<button onclick="openCompliance()">+ Riesgo</button>`)+`<div class="card">${table(byCo(db.compliance),[['Tipo','tipo'],['Descripción','descripcion'],['Vencimiento','vencimiento'],['Riesgo','riesgo',x=>badge(x.riesgo)],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="danger" onclick="deleteRecord('compliance','${x.id}')">Eliminar</button>`)}</div>`;
  const rrhhRows=byCo(db.rrhh).slice().sort((a,b)=>{const na=xiaraNroSortValue(a), nb=xiaraNroSortValue(b); if(na!==nb) return na-nb; return String(a.nombre||a.nombres||'').localeCompare(String(b.nombre||b.nombres||''),'es');}).map(e=>{const st=rrhhDocExpiryStatus(e); return {...e,__rowClass:(st.level==='alert'||st.level==='expired')?'emp-expiry-alert-row':''};});
- document.getElementById('rrhh').innerHTML=header('5. Recursos Humanos PRO','Listado de empleados, ficha completa y carpetas documentales por trabajador.',`<button onclick="openRRHH()">+ Empleado completo</button><button class="secondary" onclick="openPayrollEmployeeImport()">Escanear PDF nóminas CCC</button><button class="danger" onclick="deleteSelectedRRHH()">Eliminar selección</button><button class="danger" onclick="deleteAllRRHH()">Eliminar todos</button>`)+`<div class="soft-grid"><div class="soft-card"><b>Empleados</b><div class="metric">${byCo(db.rrhh).length}</div></div><div class="soft-card"><b>Alertas caducidad DNI/NIE</b><div class="metric">${rrhhExpiryAlertCount()}</div></div><div class="soft-card"><b>Nóminas archivadas</b><div class="metric">${byCo(db.rrhh).reduce((a,e)=>a+(e.carpetas?.nominas?.length||0),0)}</div></div><div class="soft-card"><b>Contratos</b><div class="metric">${byCo(db.rrhh).reduce((a,e)=>a+(e.carpetas?.contratos?.length||0),0)}</div></div></div><div class="card"><h3>Listado de empleados</h3>${table(rrhhRows,[['Empleado','nombre',x=>{const st=rrhhDocExpiryStatus(x); const nameHtml=(st.level==='alert'||st.level==='expired')?`<span class="emp-expiry-alert-name"><b>${x.nombre||x.nombres||''}</b></span>`:`<b>${x.nombre||x.nombres||''}</b>`; return `<div class="emp-list-cell">${xiaraNroBadgeHtml(x)}${empPhotoHtml(x)}<div>${nameHtml}<br><span class="muted">${x.dni||''} · ${x.numeroSS||''}</span><br>${rrhhDocExpiryBadge(x)}</div></div>`;}],['Ciudad','ciudad',x=>xiaraCityNameFromEmployee(x)||x.ciudad||''],['City','ciudadTrabajo',x=>xiaraCityCodeFromEmployee(x)||'-'],['Puesto','puesto'],['Alta','fechaAlta'],['Fecha baja','fechaBaja',x=>xiaraFechaBajaEmpleadoDisplay(x)],['Caducidad DNI/NIE','dniPermisoCaducidad',x=>`${x.dniPermisoCaducidad?formatDateES(x.dniPermisoCaducidad):'-'}<br>${rrhhDocExpiryBadge(x)}`],['Estado','estado',x=>xiaraEstadoBadgeFecha(x)]],x=>`<button class="secondary" onclick="viewEmployee('${x.id}')">Documento empleado</button><button class="secondary" onclick="window.editRRHH('${x.id}')">Ficha empleado</button><button class="danger" onclick="deleteRecord('rrhh','${x.id}')">Eliminar</button><label class="rrhh-select-box"><input type="checkbox" class="rrhhSelect" value="${x.id}"> Seleccionar</label>`)}</div>`;
- document.getElementById('documentos').innerHTML=header('6. Control Documental + OCR','Archivo corporativo, legal, fiscal, laboral y financiero.',`<button onclick="openDoc()">+ Documento</button>`)+`<div class="card">${table(byCo(db.documentos),[['Nombre','nombre'],['Categoría','categoria'],['Fecha','fecha'],['Vencimiento','vencimiento',x=>`${x.vencimiento||'-'}<br>${urgency(x.vencimiento,x.estado)}`],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="viewDoc('${x.id}')">Abrir</button><button class="secondary" onclick="editDoc('${x.id}')">Editar</button><button class="secondary" onclick="runOCRDoc('${x.id}')">OCR</button><button class="danger" onclick="deleteRecord('documentos','${x.id}')">Eliminar</button>`)}</div>`;
+ document.getElementById('rrhh').innerHTML=header('5. Recursos Humanos PRO','Listado de empleados, ficha completa y carpetas documentales por trabajador.',`<button onclick="openRRHH()">+ Empleado completo</button><button class="secondary" onclick="openPayrollEmployeeImport()">Escanear PDF nóminas CCC</button><button class="danger" onclick="deleteSelectedRRHH()">Eliminar selección</button><button class="danger" onclick="deleteAllRRHH()">Eliminar todos</button>`)+`<div class="soft-grid"><div class="soft-card"><b>Empleados</b><div class="metric">${byCo(db.rrhh).length}</div></div><div class="soft-card"><b>Alertas caducidad DNI/NIE</b><div class="metric">${rrhhExpiryAlertCount()}</div></div><div class="soft-card"><b>Nóminas archivadas</b><div class="metric">${byCo(db.rrhh).reduce((a,e)=>a+(e.carpetas?.nominas?.length||0),0)}</div></div><div class="soft-card"><b>Contratos</b><div class="metric">${byCo(db.rrhh).reduce((a,e)=>a+(e.carpetas?.contratos?.length||0),0)}</div></div></div><div class="card"><h3>Listado de empleados</h3>${table(rrhhRows,[['Empleado','nombre',x=>{const st=rrhhDocExpiryStatus(x); const nameHtml=(st.level==='alert'||st.level==='expired')?`<span class="emp-expiry-alert-name"><b>${x.nombre||x.nombres||''}</b></span>`:`<b>${x.nombre||x.nombres||''}</b>`; return `<div class="emp-list-cell">${xiaraNroBadgeHtml(x)}${empPhotoHtml(x)}<div>${nameHtml}<br><span class="muted">${x.dni||''} · ${x.numeroSS||''}</span><br>${rrhhDocExpiryBadge(x)}</div></div>`;}],['Ciudad','ciudad',x=>xiaraCityNameFromEmployee(x)||x.ciudad||''],['City','ciudadTrabajo',x=>xiaraCityCodeFromEmployee(x)||'-'],['Puesto','puesto'],['Alta','fechaAlta'],['Fecha baja','fechaBaja',x=>xiaraFechaBajaEmpleadoDisplay(x)],['Caducidad DNI/NIE','dniPermisoCaducidad',x=>`${x.dniPermisoCaducidad?formatDateES(x.dniPermisoCaducidad):'-'}<br>${rrhhDocExpiryBadge(x)}`],['Estado','estado',x=>xiaraEstadoBadgeFecha(x)]],x=>`<button class="secondary" onclick="viewEmployee('${x.id}')">Documento empleado</button><button class="secondary" onclick="window.editRRHH('${x.id}')">Ficha empleado</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('rrhh','empleado','${x.id}','${String(x.nombre||x.nombres||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('rrhh','${x.id}')">Eliminar</button><label class="rrhh-select-box"><input type="checkbox" class="rrhhSelect" value="${x.id}"> Seleccionar</label>`)}</div>`;
+ document.getElementById('documentos').innerHTML=header('6. Control Documental + OCR','Archivo corporativo, legal, fiscal, laboral y financiero.',`<button onclick="openDoc()">+ Documento</button>`)+`<div class="card">${table(byCo(db.documentos),[['Nombre','nombre'],['Categoría','categoria'],['Fecha','fecha'],['Vencimiento','vencimiento',x=>`${x.vencimiento||'-'}<br>${urgency(x.vencimiento,x.estado)}`],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="viewDoc('${x.id}')">Abrir</button><button class="secondary" onclick="editDoc('${x.id}')">Editar</button><button class="secondary" onclick="runOCRDoc('${x.id}')">OCR</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('documental','documentoCorporativo','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Docs V6</button><button class="danger" onclick="deleteRecord('documentos','${x.id}')">Eliminar</button>`)}</div>`;
  renderInformes();
  const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas y juntas.',`<button onclick="openSocio()">+ Socio</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
  document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`-`)}</div>`;
@@ -3769,6 +3986,128 @@ window.savePlantilla=async()=>{const t={id:uid('TPL'),empresa_id:activeCompany,n
 window.searchOfficialJuris=()=>{const q=encodeURIComponent(val('jurSearch')||'laboral');const urls=[`https://www.poderjudicial.es/search/indexAN.jsp?text=${q}`,`https://hj.tribunalconstitucional.es/HJ/es/Resolucion/List?texto=${q}`,`https://www.boe.es/buscar/legislacion.php?campo%5B0%5D=TITULO&dato%5B0%5D=${q}`];document.getElementById('jurResults').innerHTML=`<div class="msg"><b>Búsqueda oficial</b><br><button onclick="window.open('${urls[0]}','_blank')">CENDOJ / Poder Judicial</button><button onclick="window.open('${urls[1]}','_blank')">Tribunal Constitucional</button><button onclick="window.open('${urls[2]}','_blank')">BOE</button><p class="muted">Para traer resultados dentro de XIARA hace falta backend/proxy V4.8.6.</p></div>`}
 
 // Finance V6 - lectura documental segura (sin subidas)
+
+window.xiaraUploadV6FinanceDocument=async function(id){
+ const preview=document.getElementById('xiaraV6FinanceUploadPreview');
+ const input=document.getElementById('xiaraV6FinanceFile');
+ const category=document.getElementById('xiaraV6FinanceCategoria');
+
+ if(!preview||!input||!category) return;
+
+ let storageTemporarilyEnabled=false;
+
+ try{
+   if(!input.files || !input.files.length){
+     preview.innerHTML='<span style="color:#b45309;font-weight:800">Selecciona primero un archivo.</span>';
+     return;
+   }
+
+   if(!window.XIARA || !XIARA.documents || typeof XIARA.documents.upload!=='function'){
+     preview.innerHTML='<span style="color:#b91c1c;font-weight:800">La capa documental V6 no está disponible.</span>';
+     return;
+   }
+
+   if(!XIARA.storageService || typeof XIARA.storageService.setEnabled!=='function'){
+     preview.innerHTML='<span style="color:#b91c1c;font-weight:800">El servicio Storage V6 no está disponible.</span>';
+     return;
+   }
+
+   const file=input.files[0];
+
+   const prepared=XIARA.documents.prepareUpload({
+     empresaId:activeCompany,
+     modulo:'finanzas',
+     entidadTipo:'factura',
+     entidadId:id,
+     categoria:category.value||'factura_original',
+     file:file,
+     source:'finanzas-v6-ui'
+   });
+
+   const ok=confirm(
+     'XIARA V6 va a subir este archivo financiero a Firebase Storage y guardar sus metadatos en Firestore.\n\n'+
+     'Archivo: '+file.name+'\n'+
+     'Ruta: '+prepared.storagePath+'\n\n'+
+     '¿Continuar?'
+   );
+
+   if(!ok){
+     preview.innerHTML='<span class="muted">Subida cancelada. No se ha guardado nada.</span>';
+     return;
+   }
+
+   preview.innerHTML=
+     '<div class="cloud-ok"><b>Subiendo documento financiero V6...</b><br>'+
+     'Archivo: '+escHtml(file.name)+'<br>'+
+     'Ruta: <code>'+escHtml(prepared.storagePath)+'</code></div>';
+
+   XIARA.storageService.setEnabled(true);
+   storageTemporarilyEnabled=true;
+
+   const saved=await XIARA.documents.upload({
+     empresaId:activeCompany,
+     modulo:'finanzas',
+     entidadTipo:'factura',
+     entidadId:id,
+     categoria:category.value||'factura_original',
+     file:file,
+     source:'finanzas-v6-ui'
+   });
+
+   preview.innerHTML=
+     '<div class="cloud-ok">'+
+       '<b>Documento financiero V6 guardado correctamente.</b><br>'+
+       'Documento: '+escHtml(file.name)+'<br>'+
+       'ID: '+escHtml((saved&&saved.id)||'-')+'<br>'+
+       'Ruta: <code>'+escHtml((saved&&saved.storagePath)||prepared.storagePath||'-')+'</code><br>'+
+       '<span class="muted">Archivo en Storage + metadatos en Firestore.</span>'+
+     '</div>';
+
+   input.value='';
+
+   // Refrescar únicamente la lista V6 de la factura actual.
+   const box=document.getElementById('xiaraV6FinanceDocsList');
+   if(box){
+     const docs=await XIARA.documents.listForEntity({
+       empresaId:activeCompany,
+       modulo:'finanzas',
+       entidadTipo:'factura',
+       entidadId:id,
+       limit:100
+     });
+
+     box.innerHTML=(docs&&docs.length)
+       ? docs.map(d=>`
+         <div class="sign-box" style="margin-bottom:8px">
+           <b>${escHtml(d.nombre||d.filename||d.id||'Documento')}</b>
+           <span style="float:right" class="badge">V6</span><br>
+           <span class="muted">
+             ${escHtml(d.categoria||'documento')} ·
+             ${escHtml(d.mimeType||'archivo')} ·
+             ${d.size ? Math.round(d.size/1024)+' KB' : '-'} ·
+             ${escHtml(d.estado||'disponible')}
+           </span><br>
+           <code>${escHtml(d.storagePath||'')}</code>
+         </div>
+       `).join('')
+       : '<div class="warn-box">Todavía no hay documentos migrados al almacenamiento V6 para esta factura.</div>';
+   }
+
+ }catch(e){
+   console.error('XIARA V6: error en subida financiera',e);
+   preview.innerHTML=
+     '<span style="color:#b91c1c;font-weight:800">No se pudo completar la subida V6: '+
+     escHtml(e && e.message ? e.message : String(e))+
+     '</span><br><span class="muted">Revisa la consola del navegador si necesitamos diagnosticar el error.</span>';
+ }finally{
+   if(storageTemporarilyEnabled){
+     try{
+       XIARA.storageService.setEnabled(false);
+     }catch(_e){}
+   }
+ }
+}
+
 window.xiaraViewV6FinanceDocs=async function(id){
  const f=(db.facturas||[]).find(x=>x.id===id);
  if(!f) return alert('Factura no encontrada.');
@@ -3782,7 +4121,28 @@ window.xiaraViewV6FinanceDocs=async function(id){
     </div>
     <div class="card" style="margin-top:16px">
       <h3>Documentos V6</h3>
-      <p class="muted">Lectura documental V6 activa. Esta pantalla no sube ni modifica archivos.</p>
+      <p class="muted">Lectura V6 activa. Primera subida real habilitada de forma controlada para Finanzas.</p>
+
+      <div class="notice-box" style="margin:10px 0">
+        <b>Subir documento financiero a V6</b>
+        <div class="row" style="margin-top:8px">
+          <select id="xiaraV6FinanceCategoria">
+            <option value="factura_original">Factura original</option>
+            <option value="factura_rectificativa">Factura rectificativa</option>
+            <option value="justificante">Justificante</option>
+            <option value="ocr">OCR / extracción</option>
+            <option value="otros">Otros documentos</option>
+          </select>
+          <input id="xiaraV6FinanceFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.csv,.txt">
+        </div>
+        <button class="secondary" style="margin-top:8px" onclick="xiaraUploadV6FinanceDocument('${id}')">
+          Subir archivo V6
+        </button>
+        <div id="xiaraV6FinanceUploadPreview" class="muted" style="margin-top:8px">
+          La subida solo se realizará al pulsar el botón y confirmar.
+        </div>
+      </div>
+
       <div id="xiaraV6FinanceDocsList"><p class="muted">Consultando metadatos V6...</p></div>
     </div>`
  );
