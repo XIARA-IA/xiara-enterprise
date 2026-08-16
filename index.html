@@ -2432,7 +2432,35 @@ function renderMods(){
  const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas y juntas.',`<button onclick="openSocio()">+ Socio</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('socios','socio','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
  document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button>`)}</div>`;
  document.getElementById('usuarios').innerHTML=header('Usuarios y roles','Usuarios vinculados solo a la empresa activa.',`<button onclick="openUser()">+ Usuario</button>`)+`<div class="card">${table(byCo(db.usuarios),[['Nombre','nombre'],['Rol','rol'],['Email','email']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('usuarios','usuario','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('usuarios','${x.id}')">Eliminar</button>`)}</div>`;
- document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Comprobación de Firestore, Storage y servicio documental común.</p><button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button><button class="secondary" onclick="xiaraV6Preflight()">Preflight deploy V6</button><button class="secondary" onclick="xiaraAuditDocumentButtons()">Auditar botones documentos</button><button class="secondary" onclick="xiaraV61Diagnostics()">Diagnóstico V6.1</button><button class="secondary" onclick="xiaraV62FastTrackAudit()">Diagnóstico V6.2 Fast-Track</button><button class="secondary" onclick="xiaraV62Preflight()">Preflight V6.2</button><button class="secondary" onclick="xiaraV62ModuleStatus()">Módulos V6.2</button><button class="secondary" onclick="xiaraV62ContextStatus()">Contexto V6.2</button><button class="secondary" onclick="xiaraV61ReleaseStatus()">Validar release V6.1</button><button class="secondary" onclick="xiaraDocumentIntegrityScan()">Integridad documental</button><button class="secondary" onclick="xiaraRepairMissingV6Links()">Reparar enlaces V6</button><button class="secondary" onclick="xiaraLegacyBlobAssessment()">Evaluar blobs legacy</button><button class="secondary" onclick="xiaraLegacyBlobRecoverability()">Evaluar recuperabilidad blobs</button><button class="secondary" onclick="xiaraMigrateRecoverableLegacyBlobs()">Migrar blobs recuperables</button><button class="secondary" onclick="xiaraMarkDeadLegacyBlobs()">Marcar blobs no recuperables</button><button class="secondary" onclick="xiaraDocumentArchitectureSelfTest()">Test arquitectura documental</button><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div><div id="xiaraV6PreflightStatus" class="muted" style="margin-top:10px">Preflight pendiente.</div><div class="cloud-ok" style="margin-top:10px"><b>Integración documental unificada</b><br>Los botones originales de Legal, RRHH, Documental, Finanzas y Fiscalidad guardan ahora en Storage V6 + Firestore. Los repositorios auxiliares se mantienen para consulta y transición.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir repositorio</button></div></div>`;
+ document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Fast-track de release: una sola acción valida arquitectura, Firestore, Storage, documentos, runtime y smoke test, y deja lista la build para presentación.</p><div class="xiara-v62-config-actions">
+  <button onclick="xiaraV62PreparePresentation()" style="font-weight:900">PREPARAR PRESENTACIÓN V6.2</button><button class="secondary" onclick="xiaraV62ExecutiveReport()">Informe ejecutivo</button>
+
+  <details style="margin-top:10px">
+    <summary style="cursor:pointer;font-weight:800">Herramientas avanzadas</summary>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:10px">
+      <button class="secondary" onclick="xiaraCheckV6Health()">Comprobar V6</button>
+      <button class="secondary" onclick="xiaraPreflightDeployV6()">Preflight deploy V6</button>
+      <button class="secondary" onclick="xiaraAuditDocumentButtons()">Auditar botones documentos</button>
+      <button class="secondary" onclick="xiaraV61Diagnostics()">Diagnóstico V6.1</button>
+      <button class="secondary" onclick="xiaraV62FastTrackAudit()">Diagnóstico V6.2 Fast-Track</button>
+      <button class="secondary" onclick="xiaraV62Preflight()">Preflight V6.2</button>
+      <button class="secondary" onclick="xiaraV62ModuleStatus()">Módulos V6.2</button>
+      <button class="secondary" onclick="xiaraV62ContextStatus()">Contexto V6.2</button>
+      <button class="secondary" onclick="xiaraV62ArchitectureAudit()">Arquitectura V6.2</button>
+      <button class="secondary" onclick="xiaraV62SafeExtractionGate()">Gate modular V6.2</button>
+      <button class="secondary" onclick="xiaraV62ModuleInventory()">Inventario modular V6.2</button>
+      <button class="secondary" onclick="xiaraV62ExtractionCandidates()">Candidatos extracción V6.2</button>
+      <button class="secondary" onclick="xiaraV61ReleaseStatus()">Validar release V6.1</button>
+      <button class="secondary" onclick="xiaraDocumentIntegrityScan()">Integridad documental</button>
+      <button class="secondary" onclick="xiaraRepairMissingV6Links()">Reparar enlaces V6</button>
+      <button class="secondary" onclick="xiaraLegacyBlobAssessment()">Evaluar blobs legacy</button>
+      <button class="secondary" onclick="xiaraLegacyBlobRecoverability()">Evaluar recuperabilidad blobs</button>
+      <button class="secondary" onclick="xiaraMigrateRecoverableLegacyBlobs()">Migrar blobs recuperables</button>
+      <button class="secondary" onclick="xiaraMarkDeadLegacyBlobs()">Marcar blobs no recuperables</button>
+      <button class="secondary" onclick="xiaraDocumentArchitectureSelfTest()">Test arquitectura documental</button>
+    </div>
+  </details>
+</div><div id="xiaraV6HealthStatus" class="muted" style="margin-top:10px">Pendiente de comprobación.</div><div id="xiaraV6PreflightStatus" class="muted" style="margin-top:10px">Preflight pendiente.</div><div class="cloud-ok" style="margin-top:10px"><b>Integración documental unificada</b><br>Los botones originales de Legal, RRHH, Documental, Finanzas y Fiscalidad guardan ahora en Storage V6 + Firestore. Los repositorios auxiliares se mantienen para consulta y transición.</div></div><div class="card"><h3>Documentos corporativos V6</h3><p class="muted">Repositorio documental de la empresa activa.</p><button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${activeCompany}','${String(company().nombre||activeCompany).replace(/'/g,"&#39;")}')">Abrir repositorio</button></div></div>`;
 }
 
 function legalFolderTemplate(){
@@ -8538,6 +8566,10 @@ document.head.appendChild(xiaraStyleRiesgos501);
 <script type="module" src="./public/js/core/xiara-storage.js"></script>
 <script type="module" src="./public/js/core/xiara-documents.js"></script>
 <script src="./public/js/v62/xiara-v62-context.js"></script>
+<script src="./public/js/v62/xiara-v62-architecture.js"></script>
+<script src="./public/js/v62/xiara-v62-inventory.js"></script>
+<script src="./public/js/v62/xiara-v62-fast-validation.js"></script>
+<script src="./public/js/v62/xiara-v62-executive.js"></script>
 <script src="./public/js/v62/xiara-v62-observability.js"></script>
 
 </body>
