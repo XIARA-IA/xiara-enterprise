@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>XIARA IA AUDITORIA V5.1.4 STABLE PRL PRINT ORIGINAL FIX</title>
+<title>XIARA V7 IA AUDITORIA V5.1.4 STABLE PRL PRINT ORIGINAL FIX</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--p:#5b46f6;--ok:#16a34a;--warn:#f59e0b;--bad:#ef4444;--dark:#07122a}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:var(--ink)}button,input,select,textarea{font-family:inherit}
@@ -2432,8 +2432,8 @@ function renderMods(){
  const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas y juntas.',`<button onclick="openSocio()">+ Socio</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('socios','socio','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
  document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button>`)}</div>`;
  document.getElementById('usuarios').innerHTML=header('Usuarios y roles','Usuarios vinculados solo a la empresa activa.',`<button onclick="openUser()">+ Usuario</button>`)+`<div class="card">${table(byCo(db.usuarios),[['Nombre','nombre'],['Rol','rol'],['Email','email']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('usuarios','usuario','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('usuarios','${x.id}')">Eliminar</button>`)}</div>`;
- document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Fast-track de release: una sola acción valida arquitectura, Firestore, Storage, documentos, runtime y smoke test, y deja lista la build para presentación.</p><div class="xiara-v62-config-actions">
-  <button onclick="xiaraV62PreparePresentation()" style="font-weight:900">PREPARAR PRESENTACIÓN V6.2</button><button class="secondary" onclick="xiaraV62ExecutiveReport()">Informe ejecutivo</button>
+ document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Cierre V7: una sola acción valida arquitectura, Firestore, Storage, documentos persistentes, runtime, seguridad y compatibilidad V6.2.</p><div class="xiara-v62-config-actions">
+  <button onclick="xiaraV7CloseRelease()" style="font-weight:900">CERRAR V7</button><button class="secondary" onclick="xiaraV7FinalReport()">Informe final V7</button><button class="secondary" onclick="console.table(xiaraV7EnterpriseSnapshot())">Snapshot V7</button>
 
   <details style="margin-top:10px">
     <summary style="cursor:pointer;font-weight:800">Herramientas avanzadas</summary>
@@ -8570,6 +8570,10 @@ document.head.appendChild(xiaraStyleRiesgos501);
 <script src="./public/js/v62/xiara-v62-inventory.js"></script>
 <script src="./public/js/v62/xiara-v62-fast-validation.js"></script>
 <script src="./public/js/v62/xiara-v62-executive.js"></script>
+<script src="./public/js/v7/xiara-v7-core.js"></script>
+<script src="./public/js/v7/xiara-v7-runtime.js"></script>
+<script src="./public/js/v7/xiara-v7-release.js"></script>
+<script src="./public/js/v7/xiara-v7-enterprise.js"></script>
 <script src="./public/js/v62/xiara-v62-observability.js"></script>
 
 </body>
