@@ -8,7 +8,7 @@ const {getMessaging}=require("firebase-admin/messaging");
 const crypto=require("crypto");
 
 initializeApp();
-setGlobalOptions({region:"us-east1",maxInstances:10});
+setGlobalOptions({region:"us-east1",maxInstances:10,invoker:"public"});
 const db=getFirestore(),auth=getAuth();
 
 const MODULES=["dashboard","notificaciones","chat","legal","finanzas","fiscalidad","compliance","documental","rrhh","socios","conferencia","agenda","firma","informes","empresas","usuarios","config"];
@@ -98,6 +98,16 @@ exports.adminUpdateXiaraAccess=onCall(async req=>{
   await db.doc(`access/${uid}`).set(p,{merge:true});
   await db.doc(`usuarios/${uid}`).set({id:uid,authUid:uid,nombre:p.nombre,rol:p.rol,empresa_id:empresas[0],empresas,activo:p.activo,updatedAt:FieldValue.serverTimestamp()},{merge:true});
   await auth.updateUser(uid,{displayName:p.nombre||undefined,disabled:!p.activo});
+  if(!p.activo){
+    await auth.revokeRefreshTokens(uid).catch(()=>{});
+    await db.doc(`xiara_sessions/${uid}`).set({
+      uid,
+      sessionId:crypto.randomUUID(),
+      closedAt:FieldValue.serverTimestamp(),
+      closedBy:req.auth.uid,
+      updatedAt:FieldValue.serverTimestamp()
+    },{merge:true});
+  }
   await syncAreaMemberships(uid,{uid,...p}).catch(()=>{});
   return{ok:true};
 });
@@ -106,10 +116,55 @@ exports.adminSetXiaraUserDisabled=onCall(async req=>{
   const uid=String(req.data?.uid||"").trim(),disabled=!!req.data?.disabled;
   if(uid===req.auth.uid&&disabled)throw new HttpsError("failed-precondition","No puedes desactivarte.");
   await auth.updateUser(uid,{disabled});
-  await db.doc(`access/${uid}`).set({activo:!disabled,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  if(disabled)await auth.revokeRefreshTokens(uid).catch(()=>{});
+  await db.doc(`access/${uid}`).set({
+    activo:!disabled,
+    updatedAt:FieldValue.serverTimestamp()
+  },{merge:true});
+  if(disabled){
+    await db.doc(`xiara_sessions/${uid}`).set({
+      uid,
+      sessionId:crypto.randomUUID(),
+      closedAt:FieldValue.serverTimestamp(),
+      closedBy:req.auth.uid,
+      updatedAt:FieldValue.serverTimestamp()
+    },{merge:true});
+  }
   const a=await access(uid);if(a)await syncAreaMemberships(uid,a).catch(()=>{});
   return{ok:true};
 });
+
+exports.xiaraStartExclusiveSession=onCall({cors:true,invoker:"public"},async req=>{
+  if(!req.auth)throw new HttpsError("unauthenticated","Inicia sesión.");
+  const a=await access(req.auth.uid);
+  if(!a||a.activo===false)throw new HttpsError("permission-denied","Usuario deshabilitado.");
+  const sessionId=crypto.randomUUID();
+  await db.doc(`xiara_sessions/${req.auth.uid}`).set({uid:req.auth.uid,
+    sessionId,
+    sessionStartedAt:FieldValue.serverTimestamp(),
+    sessionDevice:String(req.data?.deviceLabel||"Navegador").slice(0,180),
+    sessionClosedAt:null,sessionClosedBy:null,
+    updatedAt:FieldValue.serverTimestamp()
+  },{merge:true});
+  return{ok:true,sessionId};
+});
+
+exports.adminForceXiaraLogout=onCall({cors:true,invoker:"public"},async req=>{
+  await requireAdmin(req);
+  const uid=String(req.data?.uid||"").trim();
+  if(!uid)throw new HttpsError("invalid-argument","UID requerido.");
+  if(uid===req.auth.uid)throw new HttpsError("failed-precondition","No cierres tu propia sesión desde este botón.");
+  await auth.revokeRefreshTokens(uid).catch(()=>{});
+  await db.doc(`xiara_sessions/${uid}`).set({
+    uid,
+    sessionId:crypto.randomUUID(),
+    closedAt:FieldValue.serverTimestamp(),
+    closedBy:req.auth.uid,
+    updatedAt:FieldValue.serverTimestamp()
+  },{merge:true});
+  return{ok:true};
+});
+
 exports.adminListXiaraUsers=onCall(async req=>{
   await requireAdmin(req);
   const p=await auth.listUsers(500),refs=p.users.map(u=>db.doc(`access/${u.uid}`)),sn=refs.length?await db.getAll(...refs):[],map={};

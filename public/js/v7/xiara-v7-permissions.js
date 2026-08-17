@@ -6,7 +6,7 @@ const MOD=[['dashboard','Dashboard'],['notificaciones','Notificaciones'],['chat'
 const ACT=[['ver','Ver'],['crear','Crear'],['editar','Editar'],['borrar','Borrar'],['subir','Subir docs'],['descargar','Descargar']];
 const NAV={dashboard:'dashboard',notificaciones:'notificaciones',chat:'chat',laborales:'legal',finanzas:'finanzas',fiscalidad:'fiscalidad',compliance:'compliance',documentos:'documental',rrhh:'rrhh',socios:'socios',conferencia:'conferencia',agenda:'agenda',firmaDigital:'firma',informes:'informes',empresas:'empresas',usuarios:'usuarios',config:'config'};
 const COL={empresas:'empresas',usuarios:'usuarios',notificaciones:'notificaciones',chat_conversations:'chat',chat_presence:'chat',laborales:'legal',casosJudiciales:'legal',conciliaciones:'legal',jurisprudencia:'legal',plantillas:'legal',finanzas:'finanzas',facturas:'finanzas',modelos:'fiscalidad',compliance:'compliance',rrhh:'rrhh',centrosTrabajo:'rrhh',cargasSociales:'rrhh',cartasPago:'finanzas',documentos:'documental',socios:'socios',audit:'config'};
-let auth,fs,fns,profile,users=[];
+let auth,fs,fns,profile,users=[],sessionUnsub=null,currentSessionId=null;
 function empty(){return Object.fromEntries(MOD.map(([m])=>[m,Object.fromEntries(ACT.map(([a])=>[a,false]))]));}
 function fill(v){return Object.fromEntries(MOD.map(([m])=>[m,Object.fromEntries(ACT.map(([a])=>[a,!!v]))]));}
 function preset(map){const p=empty();Object.entries(map||{}).forEach(([m,aa])=>(aa||[]).forEach(a=>{if(p[m])p[m][a]=true;}));return p;}
@@ -34,7 +34,7 @@ function hideLegacyUserManager(){
  [...sec.children].forEach(el=>{if(el!==panel)el.style.display='none';});
 }
 function panel(){const s=document.getElementById('usuarios');if(!s||!admin())return;if(document.getElementById('xiaraRbacPanel'))return;s.insertAdjacentHTML('afterbegin',`<div id="xiaraRbacPanel" class="card" style="border:2px solid #6c4cf5;margin-bottom:12px"><h3>🔐 Usuarios y permisos V7.1</h3><p class="muted">Checklist por empresa, área y acción.</p><button onclick="xiaraRbacOpenUser()">+ Crear usuario</button> <button class="secondary" onclick="xiaraRbacRefreshUsers()">Actualizar</button> <button class="secondary" onclick="xiaraRbacSelfTest()">VALIDAR PERMISOS V7.1</button><div id="xiaraRbacStatus" class="muted"></div><div id="xiaraRbacUsers"></div></div>`);loadUsers();setTimeout(hideLegacyUserManager,0);}
-async function loadUsers(){if(!admin())return[];try{const r=await call('adminListXiaraUsers');users=r?.users||[];const w=document.getElementById('xiaraRbacUsers'),st=document.getElementById('xiaraRbacStatus');if(st)st.textContent=`${users.length} usuario(s) Firebase`;if(w)w.innerHTML=`<div style="overflow:auto"><table style="width:100%"><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Empresas</th><th>Estado</th><th></th></tr>${users.map(u=>`<tr><td>${esc(u.displayName||u.access?.nombre||'')}</td><td>${esc(u.email||'')}</td><td>${esc(u.access?.rol||'Sin perfil')}</td><td>${esc((u.access?.empresas||[]).join(', '))}</td><td>${u.disabled||u.access?.activo===false?'⛔':'✅'}</td><td><button class="secondary" onclick="xiaraRbacEditUser('${u.uid}')">Permisos</button> <button class="danger" onclick="xiaraRbacToggleUser('${u.uid}',${u.disabled?'false':'true'})">${u.disabled?'Activar':'Desactivar'}</button></td></tr>`).join('')}</table></div>`;return users;}catch(e){const st=document.getElementById('xiaraRbacStatus');if(st)st.textContent='Error: '+(e.message||e);return[];}}
+async function loadUsers(){if(!admin())return[];try{const r=await call('adminListXiaraUsers');users=r?.users||[];const w=document.getElementById('xiaraRbacUsers'),st=document.getElementById('xiaraRbacStatus');if(st)st.textContent=`${users.length} usuario(s) Firebase`;if(w)w.innerHTML=`<div style="overflow:auto"><table style="width:100%"><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Empresas</th><th>Estado</th><th></th></tr>${users.map(u=>`<tr><td>${esc(u.displayName||u.access?.nombre||'')}</td><td>${esc(u.email||'')}</td><td>${esc(u.access?.rol||'Sin perfil')}</td><td>${esc((u.access?.empresas||[]).join(', '))}</td><td>${u.disabled||u.access?.activo===false?'⛔':'✅'}</td><td><button class="secondary" onclick="xiaraRbacEditUser('${u.uid}')">Permisos</button> <button class="secondary" onclick="xiaraRbacForceLogout('${u.uid}','${esc(u.email||'')}')">Cerrar sesión</button> <button class="danger" onclick="xiaraRbacToggleUser('${u.uid}',${u.disabled?'false':'true'})">${u.disabled?'Activar':'Desactivar'}</button></td></tr>`).join('')}</table></div>`;return users;}catch(e){const st=document.getElementById('xiaraRbacStatus');if(st)st.textContent='Error: '+(e.message||e);return[];}}
 window.xiaraRbacRefreshUsers=loadUsers;window.xiaraRbacApplyPreset=usePreset;
 window.xiaraRbacOpenUser=function(){
  if(!profile){
@@ -66,11 +66,113 @@ window.xiaraRbacCreateUser=async function(){const displayName=document.getElemen
 window.xiaraRbacEditUser=function(uid){const u=users.find(x=>x.uid===uid);if(!u)return;const a=u.access||{};modal(`<h2>Permisos de ${esc(u.displayName||u.email)}</h2><div class="form"><input id="rbac_edit_name" value="${esc(u.displayName||a.nombre||'')}"><input value="${esc(u.email||'')}" disabled><label>Rol<select id="rbac_edit_role" onchange="xiaraRbacApplyPreset(this.value)">${Object.keys(PRE).map(x=>`<option ${x===(a.rol||'Personalizado')?'selected':''}>${esc(x)}</option>`).join('')}</select></label><input id="rbac_edit_companies" value="${esc((a.empresas||[]).join(','))}" placeholder="EMPRESA1,EMPRESA2"><label><input id="rbac_edit_active" type="checkbox" ${a.activo===false?'':'checked'}> Activo</label><div class="card">${grid(norm(a.permisos||{}))}</div><button onclick="xiaraRbacSaveUser('${uid}')">Guardar permisos</button></div>`);};
 window.xiaraRbacSaveUser=async function(uid){const displayName=document.getElementById('rbac_edit_name')?.value.trim(),rol=document.getElementById('rbac_edit_role')?.value||'Personalizado',empresas=(document.getElementById('rbac_edit_companies')?.value||'').split(',').map(x=>x.trim()).filter(Boolean),activo=!!document.getElementById('rbac_edit_active')?.checked;if(!empresas.length)return alert('Debe tener una empresa.');try{await call('adminUpdateXiaraAccess',{uid,displayName,rol,empresas,activo,permisos:readGrid()});close();await loadUsers();alert('Permisos actualizados.');}catch(e){alert(e.message||e);}};
 window.xiaraRbacToggleUser=async function(uid,disabled){if(!confirm(disabled?'¿Desactivar usuario?':'¿Activar usuario?'))return;try{await call('adminSetXiaraUserDisabled',{uid,disabled});await loadUsers();}catch(e){alert(e.message||e);}};
+window.xiaraRbacForceLogout=async function(uid,email){
+ if(!confirm(`¿Cerrar inmediatamente la sesión de ${email||'este usuario'} en todos sus dispositivos?`))return;
+ try{
+  await call('adminForceXiaraLogout',{uid});
+  alert('Sesión cerrada. El usuario tendrá que volver a iniciar sesión.');
+  await loadUsers();
+ }catch(e){alert(e.message||e);}
+};
 window.xiaraRbacSelfTest=async function(){const c=[['Perfil',!!profile],['Activo',profile?.activo!==false],['Empresa',companyAllowed(company())],['Firestore',!!window.XIARA?.dbService],['Storage',!!window.XIARA?.storageService],['Functions',!!fns],['Guard',window.XIARA_PERMISSION_READY===true]];alert((c.every(x=>x[1])?'PERMISOS V7.1 OK':'PERMISOS V7.1 REVISAR')+'\n\n'+c.map(([n,v])=>(v?'OK  ':'FALLO  ')+n).join('\n'));return c;};
-async function loadProfile(u){const fm=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-firestore.js`),s=await fm.getDoc(fm.doc(fs,'access',u.uid)),d=s.exists()?s.data():null;profile=d?{uid:u.uid,email:u.email,nombre:d.nombre||u.displayName||u.email,activo:d.activo!==false,rol:d.rol||'Personalizado',empresas:Array.isArray(d.empresas)?d.empresas:[],permisos:norm(d.permisos||{})}:{uid:u.uid,email:u.email,nombre:u.email,activo:false,rol:'Sin acceso',empresas:[],permisos:empty()};window.XIARA_PERMISSIONS.profile=profile;window.XIARA_PERMISSIONS.loaded=true;window.XIARA_PERMISSION_READY=true;nav();sanitize();setTimeout(panel,100);try{window.xiaraStartSnapshots?.();}catch(_e){}}
-async function init(){const ap=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-app.js`),am=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-auth.js`),fm=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-firestore.js`),fn=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-functions.js`);for(let i=0;i<100&&!ap.getApps().length;i++)await new Promise(r=>setTimeout(r,50));const app=ap.getApps()[0];if(!app)throw new Error('Firebase no inicializada');auth=am.getAuth(app);fs=fm.getFirestore(app);fns=fn.getFunctions(app,REGION);am.onAuthStateChanged(auth,u=>{if(u)loadProfile(u).catch(console.error);else{profile=null;window.XIARA_PERMISSION_READY=false;}});}
+async function xiaraStopSessionWatch(){
+ try{sessionUnsub?.();}catch(_e){}
+ sessionUnsub=null;currentSessionId=null;
+}
+async function xiaraStartExclusiveSession(u){
+ const fm=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-firestore.js`);
+ const am=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-auth.js`);
+ await xiaraStopSessionWatch();
+
+ const sessionId=(globalThis.crypto?.randomUUID?.()||('SES-'+Date.now()+'-'+Math.random().toString(36).slice(2)));
+ const sessionRef=fm.doc(fs,'xiara_sessions',u.uid);
+ const accessRef=fm.doc(fs,'access',u.uid);
+
+ await fm.setDoc(sessionRef,{
+   uid:u.uid,
+   email:u.email||'',
+   sessionId,
+   startedAt:fm.serverTimestamp(),
+   device:String(navigator.userAgent||'Navegador').slice(0,180),
+   closedAt:null,
+   closedBy:null,
+   updatedAt:fm.serverTimestamp()
+ },{merge:true});
+
+ currentSessionId=sessionId;
+
+ const unsubSession=fm.onSnapshot(sessionRef,s=>{
+  if(!s.exists())return;
+  const d=s.data()||{};
+  if(currentSessionId && d.sessionId && d.sessionId!==currentSessionId){
+   currentSessionId=null;
+   am.signOut(auth).finally(()=>alert('Tu sesión se cerró porque este usuario inició sesión en otro dispositivo o un Administrador cerró la sesión.'));
+  }
+ },e=>console.warn('XIARA session watch',e));
+
+ const unsubAccess=fm.onSnapshot(accessRef,s=>{
+  if(!s.exists())return;
+  const d=s.data()||{};
+  if(d.activo===false){
+   currentSessionId=null;
+   am.signOut(auth).finally(()=>alert('Tu usuario ha sido deshabilitado por un Administrador.'));
+  }
+ },e=>console.warn('XIARA access watch',e));
+
+ sessionUnsub=()=>{
+  try{unsubSession?.();}catch(_e){}
+  try{unsubAccess?.();}catch(_e){}
+ };
+ return sessionId;
+}
+async function loadProfile(u){
+ const fm=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-firestore.js`);
+ const s=await fm.getDoc(fm.doc(fs,'access',u.uid)),d=s.exists()?s.data():null;
+ profile=d?{
+  uid:u.uid,email:u.email,nombre:d.nombre||u.displayName||u.email,activo:d.activo!==false,
+  rol:d.rol||'Personalizado',empresas:Array.isArray(d.empresas)?d.empresas:[],
+  permisos:norm(d.permisos||{}),sessionId:d.sessionId||null
+ }:{uid:u.uid,email:u.email,nombre:u.email,activo:false,rol:'Sin acceso',empresas:[],permisos:empty()};
+ window.XIARA_PERMISSIONS.profile=profile;
+ window.XIARA_PERMISSIONS.loaded=true;
+ window.XIARA_PERMISSION_READY=true;
+ if(profile.activo===false){
+  const am=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-auth.js`);
+  await am.signOut(auth);alert('Este usuario está deshabilitado.');return;
+ }
+ try{window.xiaraBindAuthenticatedUser?.(u,profile);}catch(_e){}
+ try{await xiaraStartExclusiveSession(u);}
+ catch(e){
+  console.error('XIARA exclusive session',e);
+  const am=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-auth.js`);
+  await am.signOut(auth);
+  alert('No se pudo establecer la sesión segura: '+(e.message||e));return;
+ }
+ nav();sanitize();setTimeout(panel,100);
+ try{window.xiaraStartSnapshots?.();}catch(_e){}
+}
+async function init(){
+ const ap=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-app.js`),
+       am=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-auth.js`),
+       fm=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-firestore.js`),
+       fn=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-functions.js`);
+ for(let i=0;i<100&&!ap.getApps().length;i++)await new Promise(r=>setTimeout(r,50));
+ const app=ap.getApps()[0];if(!app)throw new Error('Firebase no inicializada');
+ auth=am.getAuth(app);fs=fm.getFirestore(app);fns=fn.getFunctions(app,REGION);
+ am.onAuthStateChanged(auth,u=>{
+  if(u)loadProfile(u).catch(console.error);
+  else{
+   xiaraStopSessionWatch();
+   profile=null;
+   window.XIARA_PERMISSIONS.profile=null;
+   window.XIARA_PERMISSIONS.loaded=false;
+   window.XIARA_PERMISSION_READY=false;
+  }
+ });
+}
+window.XIARA_SESSION_API={stop:xiaraStopSessionWatch,get sessionId(){return currentSessionId;}};
 window.xiaraRbacIsAdmin=()=>isAdmin();
-window.XIARA_PERMISSIONS={version:'7.1.4-chat-ready',loaded:false,profile:null,isAdmin:admin,can,canCurrent:canCur,companyAllowed,canCollection:canCol,currentModule:cur};
+window.XIARA_PERMISSIONS={version:'8.1.2-session-hotfix',loaded:false,profile:null,isAdmin:admin,can,canCurrent:canCur,companyAllowed,canCollection:canCol,currentModule:cur};
 document.addEventListener('click',e=>{if(!window.XIARA_PERMISSIONS?.loaded)return;const n=e.target.closest?.('#nav button[data-s]');if(n&&!can(modOf(n.dataset.s),'ver')){e.preventDefault();e.stopImmediatePropagation();return alert('No tienes permiso para ver esta área.');}const a=e.target.closest?.('button,a');if(!a||a.closest?.('#nav'))return;const s=a.closest?.('.section');if(!s)return;const m=modOf(s.id),ac=action(a);if(!can(m,ac)){e.preventDefault();e.stopImmediatePropagation();alert('Permiso denegado: '+ac+' en '+m+'.');}},true);
 const mo=new MutationObserver(()=>{if(!window.XIARA_PERMISSIONS?.loaded)return;clearTimeout(mo._t);mo._t=setTimeout(()=>{nav();panel();hideLegacyUserManager();},60);});window.addEventListener('DOMContentLoaded',()=>{mo.observe(document.getElementById('app')||document.body,{childList:true,subtree:true});init().catch(console.error);});
 })();
