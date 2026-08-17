@@ -2614,6 +2614,75 @@ window.xiaraResetNotificationFilters=function(){
  xiaraApplyNotificationFilters();
 }
 
+
+function xiaraDocumentalVisibleRows(){
+ return byCo(db.documentos||[]).filter(d=>{
+  const modulo=String(d.modulo||'').toLowerCase();
+  const entidad=String(d.entidadTipo||'').toLowerCase();
+  const cat=String(d.categoria||'').toLowerCase();
+  const source=String(d.source||'').toLowerCase();
+  if(modulo==='documental')return true;
+  if(entidad==='documentocorporativo')return true;
+  if(['corporativo','corporativos','societario','escrituras','escritura','notarial','notariales'].includes(cat))return true;
+  if(source.includes('documental'))return true;
+  return false;
+ });
+}
+
+window.xiaraOpenSociosNotarialRepo=function(){
+ xiaraOpenV6EntityDocs('socios','documentacionNotarial',activeCompany,'Escrituras y documentos notariales');
+};
+
+window.xiaraUploadNotarialSocios=function(){
+ const input=document.createElement('input');
+ input.type='file';
+ input.accept='application/pdf,image/jpeg,image/png,image/webp';
+ input.multiple=true;
+ input.onchange=async()=>{
+  const files=[...(input.files||[])];
+  if(!files.length)return;
+  try{
+   if(window.XIARA_PERMISSIONS?.loaded &&
+      !window.XIARA_PERMISSIONS.isAdmin() &&
+      !window.XIARA_PERMISSIONS.can('socios','subir')){
+    return alert('No tienes permiso para subir documentos en Socios & Gobierno.');
+   }
+  }catch(_e){}
+  if(!(window.XIARA&&XIARA.documents&&XIARA.storageService)){
+   return alert('Infraestructura documental no disponible.');
+  }
+  let enabled=false,ok=0,fail=0;
+  try{
+   XIARA.storageService.setEnabled(true);enabled=true;
+   for(const file of files){
+    try{
+     await xiaraRetry(
+      ()=>xiaraWithTimeout(
+       XIARA.documents.upload({
+        empresaId:activeCompany,
+        modulo:'socios',
+        entidadTipo:'documentacionNotarial',
+        entidadId:activeCompany,
+        categoria:'notarial',
+        file,
+        source:'socios-gobierno-v8'
+       }),
+       45000,'Documento notarial'
+      ),
+      {retries:1,delay:900,label:'Documento notarial'}
+     );
+     ok++;
+    }catch(e){console.error('XIARA documento notarial',file?.name,e);fail++;}
+   }
+  }finally{
+   if(enabled){try{XIARA.storageService.setEnabled(false);}catch(_e){}}
+  }
+  alert(`Documentos notariales procesados.\n\nGuardados: ${ok}\nErrores: ${fail}`);
+  if(ok)xiaraOpenSociosNotarialRepo();
+ };
+ input.click();
+};
+
 function renderMods(){
  document.getElementById('notificaciones').innerHTML=
   header('1. Notificaciones Oficiales','TGSS, DEHÚ, AEAT, INSS.',`<button onclick="openNotif()">+ Nueva notificación</button><button class="secondary" onclick="xiaraImportGmailFromNotifications()">📥 Importar Gmail</button><button class="secondary" onclick="connectGmail()">🔗 Conectar Gmail</button>`)+
@@ -2661,9 +2730,9 @@ function renderMods(){
  document.getElementById('compliance').innerHTML=header('4. Compliance & Riesgo','RGPD, seguros, contratos, licencias y vencimientos.',`<button onclick="openCompliance()">+ Riesgo</button>`)+`<div class="card">${table(byCo(db.compliance),[['Tipo','tipo'],['Descripción','descripcion'],['Vencimiento','vencimiento'],['Riesgo','riesgo',x=>badge(x.riesgo)],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('compliance','riesgo','${x.id}','${String(x.descripcion||x.tipo||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('compliance','${x.id}')">Eliminar</button>`)}</div>`;
  const rrhhRows=byCo(db.rrhh).slice().sort((a,b)=>{const na=xiaraNroSortValue(a), nb=xiaraNroSortValue(b); if(na!==nb) return na-nb; return String(a.nombre||a.nombres||'').localeCompare(String(b.nombre||b.nombres||''),'es');}).map(e=>{const st=rrhhDocExpiryStatus(e); return {...e,__rowClass:(st.level==='alert'||st.level==='expired')?'emp-expiry-alert-row':''};});
  document.getElementById('rrhh').innerHTML=header('5. Recursos Humanos PRO','Listado de empleados, ficha completa y carpetas documentales por trabajador.',`<button onclick="openRRHH()">+ Empleado completo</button><button class="secondary" onclick="openPayrollEmployeeImport()">Escanear PDF nóminas CCC</button><button class="danger" onclick="deleteSelectedRRHH()">Eliminar selección</button><button class="danger" onclick="deleteAllRRHH()">Eliminar todos</button>`)+`<div class="soft-grid"><div class="soft-card"><b>Empleados</b><div class="metric">${byCo(db.rrhh).length}</div></div><div class="soft-card"><b>Alertas caducidad DNI/NIE</b><div class="metric">${rrhhExpiryAlertCount()}</div></div><div class="soft-card"><b>Nóminas archivadas</b><div class="metric">${byCo(db.rrhh).reduce((a,e)=>a+(e.carpetas?.nominas?.length||0),0)}</div></div><div class="soft-card"><b>Contratos</b><div class="metric">${byCo(db.rrhh).reduce((a,e)=>a+(e.carpetas?.contratos?.length||0),0)}</div></div></div><div class="card"><h3>Listado de empleados</h3>${table(rrhhRows,[['Empleado','nombre',x=>{const st=rrhhDocExpiryStatus(x); const nameHtml=(st.level==='alert'||st.level==='expired')?`<span class="emp-expiry-alert-name"><b>${x.nombre||x.nombres||''}</b></span>`:`<b>${x.nombre||x.nombres||''}</b>`; return `<div class="emp-list-cell">${xiaraNroBadgeHtml(x)}${empPhotoHtml(x)}<div>${nameHtml}<br><span class="muted">${x.dni||''} · ${x.numeroSS||''}</span><br>${rrhhDocExpiryBadge(x)}</div></div>`;}],['Ciudad','ciudad',x=>xiaraCityNameFromEmployee(x)||x.ciudad||''],['City','ciudadTrabajo',x=>xiaraCityCodeFromEmployee(x)||'-'],['Puesto','puesto'],['Alta','fechaAlta'],['Fecha baja','fechaBaja',x=>xiaraFechaBajaEmpleadoDisplay(x)],['Caducidad DNI/NIE','dniPermisoCaducidad',x=>`${x.dniPermisoCaducidad?formatDateES(x.dniPermisoCaducidad):'-'}<br>${rrhhDocExpiryBadge(x)}`],['Estado','estado',x=>xiaraEstadoBadgeFecha(x)]],x=>`<button class="secondary" onclick="viewEmployee('${x.id}')">Documento empleado</button><button class="secondary" onclick="window.editRRHH('${x.id}')">Ficha empleado</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('rrhh','empleado','${x.id}','${String(x.nombre||x.nombres||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('rrhh','${x.id}')">Eliminar</button><label class="rrhh-select-box"><input type="checkbox" class="rrhhSelect" value="${x.id}"> Seleccionar</label>`)}</div>`;
- document.getElementById('documentos').innerHTML=header('6. Control Documental + OCR','Archivo corporativo, legal, fiscal, laboral y financiero.',`<button onclick="openDoc()">+ Documento</button>`)+`<div class="card">${table(byCo(db.documentos),[['Nombre','nombre'],['Categoría','categoria'],['Fecha','fecha'],['Vencimiento','vencimiento',x=>`${x.vencimiento||'-'}<br>${urgency(x.vencimiento,x.estado)}`],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="viewDoc('${x.id}')">Abrir</button><button class="secondary" onclick="editDoc('${x.id}')">Editar</button><button class="secondary" onclick="runOCRDoc('${x.id}')">OCR</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('documental','documentoCorporativo','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('documentos','${x.id}')">Eliminar</button>`)}</div>`;
+ document.getElementById('documentos').innerHTML=header('6. Control Documental + OCR','Repositorio corporativo. Los documentos de RRHH, Finanzas, Legal, Firma y otros módulos permanecen en su área correspondiente.',`<button onclick="openDoc()">+ Documento corporativo</button>`)+`<div class="card"><p class="muted">Aquí solo se muestran documentos corporativos/documentales. Los archivos de otros módulos no se borran: dejan de aparecer en este listado global.</p>${table(xiaraDocumentalVisibleRows(),[['Nombre','nombre'],['Categoría','categoria'],['Fecha','fecha'],['Vencimiento','vencimiento',x=>`${x.vencimiento||'-'}<br>${urgency(x.vencimiento,x.estado)}`],['Estado','estado',x=>badge(x.estado)]],x=>`<button class="secondary" onclick="viewDoc('${x.id}')">Abrir</button><button class="secondary" onclick="editDoc('${x.id}')">Editar</button><button class="secondary" onclick="runOCRDoc('${x.id}')">OCR</button><button class="secondary" onclick="xiaraOpenV6EntityDocs('documental','documentoCorporativo','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('documentos','${x.id}')">Eliminar</button>`)}</div>`;
  renderInformes();
- const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas y juntas.',`<button onclick="openSocio()">+ Socio</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('socios','socio','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
+ const f=byCo(db.finanzas)[0]||{},div=f.dividendoEstimado||0;document.getElementById('socios').innerHTML=header('7. Socios & Gobierno','Participaciones, dividendos, préstamos, actas, juntas y documentación notarial.',`<button onclick="openSocio()">+ Socio</button><button onclick="xiaraUploadNotarialSocios()">📜 Subir escritura / documento notarial</button><button class="secondary" onclick="xiaraOpenSociosNotarialRepo()">📁 Documentos notariales</button>`)+`<div class="card">${table(byCo(db.socios),[['Socio','nombre'],['Participación','participacion',x=>`${x.participacion}%`],['Dividendo estimado','participacion',x=>money(div*x.participacion/100)]],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('socios','socio','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('socios','${x.id}')">Eliminar</button>`)}</div>`;
  document.getElementById('empresas').innerHTML=header('Empresas / Tenants','Aislamiento por empresa_id.',`<button onclick="openCompany()">+ Empresa</button>`)+`<div class="card">${table(db.empresas,[['Empresa','nombre'],['CIF','cif'],['Email','email'],['Grupo','grupo']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('empresas','empresa','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button>`)}</div>`;
  document.getElementById('usuarios').innerHTML=header('Usuarios y permisos seguros','Acceso por empresa, módulo y acción. Firebase Rules aplica la seguridad real.',`<button onclick="openUser()">+ Usuario</button>`)+`<div class="card">${table(byCo(db.usuarios),[['Nombre','nombre'],['Rol','rol'],['Email','email']],x=>`<button class="secondary" onclick="xiaraOpenV6EntityDocs('usuarios','usuario','${x.id}','${String(x.nombre||x.id).replace(/'/g,"&#39;")}')">Repositorio</button><button class="danger" onclick="deleteRecord('usuarios','${x.id}')">Eliminar</button>`)}</div>`;
  document.getElementById('config').innerHTML=header('Configuración','Firebase, Gmail, OCR y futuras integraciones.','')+`<div class="grid two"><div class="card"><h3>Gmail</h3><p><b>${company().email}</b></p><button onclick="connectGmail()">Conectar Gmail</button><button class="secondary" onclick="scanGmail()">Escanear correos</button><p id="gmailStatus" class="muted">Pendiente.</p></div><div class="card"><h3>V4.8.6 PDF Facturas Fix</h3><p>✅ Área 2 funcional<br>✅ Área 3 funcional<br>✅ Área 5 funcional<br>✅ Modelos fiscales ampliados</p></div><div class="card"><h3>Infraestructura documental V6</h3><p class="muted">Cierre V7: una sola acción valida arquitectura, Firestore, Storage, documentos persistentes, runtime, seguridad y compatibilidad V6.2.</p><div class="xiara-v62-config-actions">
