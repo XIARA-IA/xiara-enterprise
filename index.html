@@ -8683,6 +8683,18 @@ window.xiaraCreateTaskFromConference=function(confId){
       ${confs.length?confs.map(c=>`<div class="agenda-task-card"><b>${h(c.titulo||'Conferencia')}</b><br><span class="muted">${h(c.fecha||'')} ${h(c.hora||'')} · ${h(c.tipo||'Reunión interna')} · ${h(c.estado||'Programada')}</span><p>${h(c.descripcion||'Sin orden del día.')}</p><button onclick="xiaraOpenConferenceRoom('${c.id}')">Entrar a sala</button><button class="secondary" onclick="xiaraCreateTaskFromConference('${c.id}')">Crear tarea/orden del día</button><button class="secondary" onclick="xiaraCopyConferenceLink('${c.id}')">Copiar enlace</button></div>`).join(''):'<p class="muted">No hay conferencias registradas.</p>'}
     </div>`;
   };
+  function xiaraTaskLoggedUser(){
+    try{
+      const a=window.XIARA_PERMISSIONS?.profile||{};
+      const u=window.XIARA_AUTH_USER||{};
+      const name=a.nombre||document.getElementById('sessionName')?.textContent||u.displayName||u.email||'Usuario';
+      const email=a.email||u.email||'';
+      const uid=a.uid||u.uid||window.XIARA_PERMISSIONS?.uid||'';
+      return {uid,name,email};
+    }catch(_e){
+      return {uid:'',name:document.getElementById('sessionName')?.textContent||'Usuario',email:''};
+    }
+  }
   function xiaraTaskAssignedProfiles(t){
     const arr=Array.isArray(t.asignadoUids)?t.asignadoUids:[];
     const profiles=t.asignados||{};
@@ -8711,7 +8723,7 @@ window.xiaraCreateTaskFromConference=function(confId){
     w.innerHTML='<span class="muted">Cargando usuarios…</span>';
     try{
       const users=await window.XIARA_CHAT?.getAssignableUsers?.();
-      if(!users?.length){w.innerHTML='<span class="muted">No hay usuarios disponibles.</span>';return;}
+      if(!users?.length){w.innerHTML='<span class="muted">No se encontraron usuarios activos de esta empresa. Pulsa cerrar y vuelve a intentarlo; si persiste, revisa Usuarios y permisos.</span>';return;}
       const selected=new Set(Array.isArray(t.asignadoUids)?t.asignadoUids:[]);
       w.innerHTML=users.map(u=>`<label style="display:flex;align-items:center;gap:8px;padding:7px;border-bottom:1px solid #eef2f7">
         <input class="ag-assignee-check" type="checkbox" value="${h(u.uid)}" ${selected.has(u.uid)?'checked':''}>
@@ -8735,10 +8747,11 @@ window.xiaraCreateTaskFromConference=function(confId){
     const t=db.agenda.find(x=>x.id===id)||{id:uid('AGE'),companyId:activeCompany,fechaAsignacion:today(),fechaLimite:today(),prioridad:'Media',estado:'Pendiente',creador:currentUserName(),asignadoUids:[],asignados:{},lecturaPor:{},archivos:[],comentarios:[]};
     modal(`<button class="xiara-modal-x" onclick="closeModal()">✕</button><h2>${id?'Editar':'Nueva'} tarea</h2>
     <div class="form">
-      <label>Creada por<select id="ag_creador">${xiaraTaskCreatorOptions(t.creador)}</select></label>
+      <div class="card" style="box-shadow:none;padding:10px 12px"><b>Asignada por:</b> ${h(xiaraTaskLoggedUser().name)}${xiaraTaskLoggedUser().email?` · <span class="muted">${h(xiaraTaskLoggedUser().email)}</span>`:''}<br><span class="muted">El creador se toma automáticamente del usuario que está logueado.</span></div>
       <label>Asignar a uno o varios usuarios
         <details open style="border:1px solid #dbe3ef;border-radius:12px;padding:10px;margin-top:5px">
           <summary style="cursor:pointer;font-weight:900">👥 Seleccionar usuarios</summary>
+          <div class="muted" style="margin:7px 0">Puedes asignar la tarea aunque el usuario esté desconectado. El aviso quedará pendiente en su Chat.</div>
           <div id="ag_user_picker" style="max-height:230px;overflow:auto;margin-top:8px">Cargando…</div>
         </details>
       </label>
@@ -8763,7 +8776,10 @@ window.xiaraCreateTaskFromConference=function(confId){
 
     t.companyId=activeCompany;t.empresa_id=activeCompany;
     t.fecha=val('ag_fecha_limite');t.fechaAsignacion=val('ag_fecha_asignacion');t.fechaLimite=val('ag_fecha_limite');
-    t.titulo=val('ag_titulo');t.creador=val('ag_creador');t.prioridad=val('ag_prio');t.estado=val('ag_estado');t.descripcion=val('ag_desc');
+    t.titulo=val('ag_titulo');
+    const logged=xiaraTaskLoggedUser();
+    t.creador=logged.name;t.creadorUid=logged.uid;t.creadorEmail=logged.email;
+    t.prioridad=val('ag_prio');t.estado=val('ag_estado');t.descripcion=val('ag_desc');
 
     const file=document.getElementById('ag_file')?.files?.[0];
     if(file){const f=await agendaReadFile(file);if(f){t.archivos=t.archivos||[];t.archivos.unshift(f);}}

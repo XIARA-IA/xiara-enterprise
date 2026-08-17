@@ -306,6 +306,30 @@ exports.chatSendMessage=onCall(async req=>{
   return{ok:true,messageId};
 });
 
+
+exports.taskListAssignableUsers=onCall(async req=>{
+  if(!req.auth)throw new HttpsError("unauthenticated","Inicia sesión.");
+  const companyId=String(req.data?.companyId||"").trim();
+  if(!companyId)throw new HttpsError("invalid-argument","Empresa requerida.");
+  const me=await access(req.auth.uid);
+  if(!me||me.activo===false||!companyAllowed(me,companyId))throw new HttpsError("permission-denied","Empresa no autorizada.");
+  if(!isAdmin(me)&&!hasPerm(me,"agenda","crear"))throw new HttpsError("permission-denied","No tienes permiso para asignar tareas.");
+
+  const users=await listActiveAccess(companyId);
+  return{
+    users:users
+      .filter(u=>u.activo!==false)
+      .map(u=>({
+        uid:u.uid,
+        name:u.nombre||u.email||"Usuario",
+        email:u.email||"",
+        role:u.rol||"",
+        activo:u.activo!==false
+      }))
+      .sort((a,b)=>String(a.name||a.email).localeCompare(String(b.name||b.email),'es'))
+  };
+});
+
 exports.chatAssignTask=onCall(async req=>{
   if(!req.auth)throw new HttpsError("unauthenticated","Inicia sesión.");
   const d=req.data||{};
@@ -329,7 +353,6 @@ exports.chatAssignTask=onCall(async req=>{
   for(const recipientUid of recipientUids){
     const other=await access(recipientUid);
     if(!other||other.activo===false||!companyAllowed(other,companyId))continue;
-    if(!hasPerm(other,"chat","ver"))continue;
 
     assignmentProfiles[recipientUid]={
       uid:recipientUid,

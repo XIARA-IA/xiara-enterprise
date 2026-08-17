@@ -541,22 +541,16 @@ window.xiaraChatAdminSettings=adminSettings;
 window.xiaraChatValidate=validate;
 
 async function taskAssignableUsers(){
-  if(!state.user||!state.companyId)throw new Error('Chat todavía no está listo.');
-  const r=await call('chatListPeers',{companyId:state.companyId});
-  const peers=r?.users||[];
-  const me={
-    uid:state.user.uid,
-    name:state.profile?.nombre||state.user.displayName||state.user.email||'Usuario',
-    email:state.user.email||'',
-    role:state.profile?.rol||''
-  };
-  return [me,...peers].filter((x,i,a)=>x?.uid&&a.findIndex(y=>y.uid===x.uid)===i)
-    .sort((a,b)=>String(a.name||a.email||'').localeCompare(String(b.name||b.email||''),'es'));
+  const companyId=currentCompany();
+  if(!companyId)throw new Error('No hay empresa activa.');
+  const r=await call('taskListAssignableUsers',{companyId});
+  return (r?.users||[]).filter(x=>x?.uid);
 }
 async function assignTaskNotification(payload){
-  if(!state.user||!state.companyId)throw new Error('Chat todavía no está listo.');
+  const companyId=currentCompany();
+  if(!companyId)throw new Error('No hay empresa activa.');
   return await call('chatAssignTask',{
-    companyId:state.companyId,
+    companyId,
     taskId:String(payload?.taskId||''),
     title:String(payload?.title||''),
     description:String(payload?.description||''),
@@ -566,6 +560,6 @@ async function assignTaskNotification(payload){
   });
 }
 
-window.XIARA_CHAT={version:'8.1.6-task-notices',state,open:openConversation,validate,getAssignableUsers:taskAssignableUsers,assignTask:assignTaskNotification};
+window.XIARA_CHAT={version:'8.1.7-task-assignment-fix',state,open:openConversation,validate,getAssignableUsers:taskAssignableUsers,assignTask:assignTaskNotification};
 window.addEventListener('DOMContentLoaded',()=>{setTimeout(boot,200);});
 })();
