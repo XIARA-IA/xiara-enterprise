@@ -6,7 +6,7 @@ const MOD=[['dashboard','Dashboard'],['notificaciones','Notificaciones'],['chat'
 const ACT=[['ver','Ver'],['crear','Crear'],['editar','Editar'],['borrar','Borrar'],['subir','Subir docs'],['descargar','Descargar']];
 const NAV={dashboard:'dashboard',notificaciones:'notificaciones',chat:'chat',laborales:'legal',finanzas:'finanzas',fiscalidad:'fiscalidad',compliance:'compliance',documentos:'documental',rrhh:'rrhh',socios:'socios',conferencia:'conferencia',agenda:'agenda',firmaDigital:'firma',informes:'informes',empresas:'empresas',usuarios:'usuarios',config:'config'};
 const COL={empresas:'empresas',usuarios:'usuarios',notificaciones:'notificaciones',chat_conversations:'chat',chat_presence:'chat',laborales:'legal',casosJudiciales:'legal',conciliaciones:'legal',jurisprudencia:'legal',plantillas:'legal',finanzas:'finanzas',facturas:'finanzas',modelos:'fiscalidad',compliance:'compliance',rrhh:'rrhh',centrosTrabajo:'rrhh',cargasSociales:'rrhh',cartasPago:'finanzas',documentos:'documental',socios:'socios',audit:'config'};
-let auth,fs,fns,profile,users=[],sessionUnsub=null,currentSessionId=null;
+let auth,fs,fns,profile,users=[],sessionUnsub=null,currentSessionId=null,presenceUnsub=null,presenceTimer=null,presenceMap=new Map();
 function empty(){return Object.fromEntries(MOD.map(([m])=>[m,Object.fromEntries(ACT.map(([a])=>[a,false]))]));}
 function fill(v){return Object.fromEntries(MOD.map(([m])=>[m,Object.fromEntries(ACT.map(([a])=>[a,!!v]))]));}
 function preset(map){const p=empty();Object.entries(map||{}).forEach(([m,aa])=>(aa||[]).forEach(a=>{if(p[m])p[m][a]=true;}));return p;}
@@ -33,8 +33,98 @@ function hideLegacyUserManager(){
  if(!sec||!panel)return;
  [...sec.children].forEach(el=>{if(el!==panel)el.style.display='none';});
 }
+
+function xiaraPresenceDate(v){
+ try{
+  const d=v?.toDate?v.toDate():new Date(v);
+  if(!d||!Number.isFinite(d.getTime()))return '';
+  return d.toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+ }catch(_e){return '';}
+}
+function xiaraPresenceIsOnline(s){
+ if(!s||s.closedAt)return false;
+ const d=s.lastSeenAt?.toDate?s.lastSeenAt.toDate():s.startedAt?.toDate?s.startedAt.toDate():new Date(s.lastSeenAt||s.startedAt||0);
+ if(!d||!Number.isFinite(d.getTime()))return false;
+ return Date.now()-d.getTime()<=90000;
+}
+function xiaraPresenceCell(uid){
+ const s=presenceMap.get(uid);
+ const online=xiaraPresenceIsOnline(s);
+ const last=xiaraPresenceDate(s?.lastSeenAt||s?.startedAt);
+ return `<div style="display:flex;align-items:center;gap:7px;min-width:145px">
+  <span style="width:10px;height:10px;border-radius:50%;display:inline-block;background:${online?'#22c55e':'#94a3b8'}"></span>
+  <div><b>${online?'Conectado':'No conectado'}</b>${last?`<br><span class="muted" style="font-size:11px">${online?'Activo':'Última actividad'}: ${esc(last)}</span>`:''}</div>
+ </div>`;
+}
+function xiaraRenderUsersTable(){
+ const w=document.getElementById('xiaraRbacUsers'),st=document.getElementById('xiaraRbacStatus');
+ if(st)st.textContent=`${users.length} usuario(s) Firebase`;
+ if(!w)return;
+ w.innerHTML=`<div style="overflow:auto"><table style="width:100%">
+ <tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Empresas</th><th>Estado</th><th>Conexión</th><th></th></tr>
+ ${users.map(u=>`<tr>
+  <td>${esc(u.displayName||u.access?.nombre||'')}</td>
+  <td>${esc(u.email||'')}</td>
+  <td>${esc(u.access?.rol||'Sin perfil')}</td>
+  <td>${esc((u.access?.empresas||[]).join(', '))}</td>
+  <td>${u.disabled||u.access?.activo===false?'⛔':'✅'}</td>
+  <td>${xiaraPresenceCell(u.uid)}</td>
+  <td><button class="secondary" onclick="xiaraRbacEditUser('${u.uid}')">Permisos</button>
+      <button class="secondary" onclick="xiaraRbacForceLogout('${u.uid}','${esc(u.email||'')}')">Cerrar sesión</button>
+      <button class="danger" onclick="xiaraRbacToggleUser('${u.uid}',${u.disabled?'false':'true'})">${u.disabled?'Activar':'Desactivar'}</button></td>
+ </tr>`).join('')}</table></div>`;
+}
+async function xiaraStartAdminPresenceWatch(){
+ if(!fs||!admin()||presenceUnsub)return;
+ const fm=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-firestore.js`);
+ presenceUnsub=fm.onSnapshot(fm.collection(fs,'xiara_sessions'),snap=>{
+  presenceMap=new Map();
+  snap.forEach(d=>presenceMap.set(d.id,d.data()||{}));
+  xiaraRenderUsersTable();
+ },e=>console.warn('XIARA admin presence watch',e));
+}
+async function xiaraHeartbeat(){
+ if(!auth?.currentUser||!fs||!currentSessionId)return;
+ try{
+  const fm=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-firestore.js`);
+  await fm.setDoc(fm.doc(fs,'xiara_sessions',auth.currentUser.uid),{
+   uid:auth.currentUser.uid,email:auth.currentUser.email||'',
+   sessionId:currentSessionId,lastSeenAt:fm.serverTimestamp(),closedAt:null,updatedAt:fm.serverTimestamp()
+  },{merge:true});
+ }catch(e){console.warn('XIARA heartbeat',e);}
+}
+function xiaraStartHeartbeat(){
+ if(presenceTimer)clearInterval(presenceTimer);
+ xiaraHeartbeat();
+ presenceTimer=setInterval(xiaraHeartbeat,30000);
+}
+async function xiaraMarkOffline(){
+ if(presenceTimer){clearInterval(presenceTimer);presenceTimer=null;}
+ if(!auth?.currentUser||!fs||!currentSessionId)return;
+ try{
+  const fm=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-firestore.js`);
+  await fm.setDoc(fm.doc(fs,'xiara_sessions',auth.currentUser.uid),{
+   uid:auth.currentUser.uid,sessionId:currentSessionId,
+   closedAt:fm.serverTimestamp(),lastSeenAt:fm.serverTimestamp(),updatedAt:fm.serverTimestamp()
+  },{merge:true});
+ }catch(_e){}
+}
+
 function panel(){const s=document.getElementById('usuarios');if(!s||!admin())return;if(document.getElementById('xiaraRbacPanel'))return;s.insertAdjacentHTML('afterbegin',`<div id="xiaraRbacPanel" class="card" style="border:2px solid #6c4cf5;margin-bottom:12px"><h3>🔐 Usuarios y permisos V7.1</h3><p class="muted">Checklist por empresa, área y acción.</p><button onclick="xiaraRbacOpenUser()">+ Crear usuario</button> <button class="secondary" onclick="xiaraRbacRefreshUsers()">Actualizar</button> <button class="secondary" onclick="xiaraRbacSelfTest()">VALIDAR PERMISOS V7.1</button><div id="xiaraRbacStatus" class="muted"></div><div id="xiaraRbacUsers"></div></div>`);loadUsers();setTimeout(hideLegacyUserManager,0);}
-async function loadUsers(){if(!admin())return[];try{const r=await call('adminListXiaraUsers');users=r?.users||[];const w=document.getElementById('xiaraRbacUsers'),st=document.getElementById('xiaraRbacStatus');if(st)st.textContent=`${users.length} usuario(s) Firebase`;if(w)w.innerHTML=`<div style="overflow:auto"><table style="width:100%"><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Empresas</th><th>Estado</th><th></th></tr>${users.map(u=>`<tr><td>${esc(u.displayName||u.access?.nombre||'')}</td><td>${esc(u.email||'')}</td><td>${esc(u.access?.rol||'Sin perfil')}</td><td>${esc((u.access?.empresas||[]).join(', '))}</td><td>${u.disabled||u.access?.activo===false?'⛔':'✅'}</td><td><button class="secondary" onclick="xiaraRbacEditUser('${u.uid}')">Permisos</button> <button class="secondary" onclick="xiaraRbacForceLogout('${u.uid}','${esc(u.email||'')}')">Cerrar sesión</button> <button class="danger" onclick="xiaraRbacToggleUser('${u.uid}',${u.disabled?'false':'true'})">${u.disabled?'Activar':'Desactivar'}</button></td></tr>`).join('')}</table></div>`;return users;}catch(e){const st=document.getElementById('xiaraRbacStatus');if(st)st.textContent='Error: '+(e.message||e);return[];}}
+async function loadUsers(){
+ if(!admin())return[];
+ try{
+  const r=await call('adminListXiaraUsers');
+  users=r?.users||[];
+  xiaraRenderUsersTable();
+  xiaraStartAdminPresenceWatch().catch(console.warn);
+  return users;
+ }catch(e){
+  const st=document.getElementById('xiaraRbacStatus');
+  if(st)st.textContent='Error: '+(e.message||e);
+  return[];
+ }
+}
 window.xiaraRbacRefreshUsers=loadUsers;window.xiaraRbacApplyPreset=usePreset;
 window.xiaraRbacOpenUser=function(){
  if(!profile){
@@ -77,7 +167,9 @@ window.xiaraRbacForceLogout=async function(uid,email){
 window.xiaraRbacSelfTest=async function(){const c=[['Perfil',!!profile],['Activo',profile?.activo!==false],['Empresa',companyAllowed(company())],['Firestore',!!window.XIARA?.dbService],['Storage',!!window.XIARA?.storageService],['Functions',!!fns],['Guard',window.XIARA_PERMISSION_READY===true]];alert((c.every(x=>x[1])?'PERMISOS V7.1 OK':'PERMISOS V7.1 REVISAR')+'\n\n'+c.map(([n,v])=>(v?'OK  ':'FALLO  ')+n).join('\n'));return c;};
 async function xiaraStopSessionWatch(){
  try{sessionUnsub?.();}catch(_e){}
- sessionUnsub=null;currentSessionId=null;
+ sessionUnsub=null;
+ if(presenceTimer){clearInterval(presenceTimer);presenceTimer=null;}
+ currentSessionId=null;
 }
 async function xiaraStartExclusiveSession(u){
  const fm=await import(`https://www.gstatic.com/firebasejs/${FB}/firebase-firestore.js`);
@@ -93,6 +185,7 @@ async function xiaraStartExclusiveSession(u){
    email:u.email||'',
    sessionId,
    startedAt:fm.serverTimestamp(),
+   lastSeenAt:fm.serverTimestamp(),
    device:String(navigator.userAgent||'Navegador').slice(0,180),
    closedAt:null,
    closedBy:null,
@@ -100,6 +193,7 @@ async function xiaraStartExclusiveSession(u){
  },{merge:true});
 
  currentSessionId=sessionId;
+ xiaraStartHeartbeat();
 
  const unsubSession=fm.onSnapshot(sessionRef,s=>{
   if(!s.exists())return;
@@ -170,9 +264,10 @@ async function init(){
   }
  });
 }
-window.XIARA_SESSION_API={stop:xiaraStopSessionWatch,get sessionId(){return currentSessionId;}};
+window.XIARA_SESSION_API={stop:xiaraStopSessionWatch,markOffline:xiaraMarkOffline,get sessionId(){return currentSessionId;}};
+window.addEventListener('pagehide',()=>{xiaraMarkOffline().catch(()=>{});});
 window.xiaraRbacIsAdmin=()=>isAdmin();
-window.XIARA_PERMISSIONS={version:'8.1.2-session-hotfix',loaded:false,profile:null,isAdmin:admin,can,canCurrent:canCur,companyAllowed,canCollection:canCol,currentModule:cur};
+window.XIARA_PERMISSIONS={version:'8.1.4-user-presence',loaded:false,profile:null,isAdmin:admin,can,canCurrent:canCur,companyAllowed,canCollection:canCol,currentModule:cur};
 document.addEventListener('click',e=>{if(!window.XIARA_PERMISSIONS?.loaded)return;const n=e.target.closest?.('#nav button[data-s]');if(n&&!can(modOf(n.dataset.s),'ver')){e.preventDefault();e.stopImmediatePropagation();return alert('No tienes permiso para ver esta área.');}const a=e.target.closest?.('button,a');if(!a||a.closest?.('#nav'))return;const s=a.closest?.('.section');if(!s)return;const m=modOf(s.id),ac=action(a);if(!can(m,ac)){e.preventDefault();e.stopImmediatePropagation();alert('Permiso denegado: '+ac+' en '+m+'.');}},true);
 const mo=new MutationObserver(()=>{if(!window.XIARA_PERMISSIONS?.loaded)return;clearTimeout(mo._t);mo._t=setTimeout(()=>{nav();panel();hideLegacyUserManager();},60);});window.addEventListener('DOMContentLoaded',()=>{mo.observe(document.getElementById('app')||document.body,{childList:true,subtree:true});init().catch(console.error);});
 })();
