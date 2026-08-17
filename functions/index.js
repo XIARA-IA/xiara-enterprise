@@ -184,6 +184,42 @@ exports.chatListPeers=onCall(async req=>{
   const rows=await listActiveAccess(companyId);
   return{users:rows.filter(x=>x.uid!==req.auth.uid&&hasPerm(x,"chat","ver")).map(x=>({uid:x.uid,name:x.nombre||x.email,email:x.email||"",rol:x.rol||""}))};
 });
+
+async function ensureDirectConversation(companyId,meUid,otherUid,meAccess,otherAccess){
+  const ids=[meUid,otherUid].sort(),directKey=`${companyId}_${ids.join("_")}`;
+  const q=await db.collection("chat_conversations").where("directKey","==",directKey).limit(1).get();
+  if(!q.empty)return q.docs[0].ref;
+  const ref=db.collection("chat_conversations").doc();
+  await ref.set({
+    empresa_id:companyId,type:"direct",directKey,memberUids:ids,
+    memberProfiles:{
+      [meUid]:{uid:meUid,name:meAccess.nombre||meAccess.email||"Usuario",email:meAccess.email||""},
+      [otherUid]:{uid:otherUid,name:otherAccess.nombre||otherAccess.email||"Usuario",email:otherAccess.email||""}
+    },
+    unreadBy:{[meUid]:0,[otherUid]:0},pinnedBy:[],mutedBy:[],lastReadAtBy:{},lastDeliveredAtBy:{},
+    createdBy:meUid,createdAt:FieldValue.serverTimestamp(),lastMessageAt:FieldValue.serverTimestamp(),lastMessageText:""
+  });
+  return ref;
+}
+async function sendTaskChatMessage({conversationRef,conversation,companyId,senderUid,senderAccess,recipientUid,taskId,title,description,dueDate,priority}){
+  const messageId=crypto.randomUUID();
+  const text=`📌 TAREA ASIGNADA\n${title}${dueDate?`\nPlazo: ${dueDate}`:""}${priority?`\nPrioridad: ${priority}`:""}${description?`\n${description}`:""}`;
+  await conversationRef.collection("messages").doc(messageId).set({
+    senderUid,senderName:senderAccess.nombre||senderAccess.email||"Usuario",text,type:"task",
+    attachment:null,replyTo:null,createdAt:FieldValue.serverTimestamp(),deletedAt:null,
+    taskId,taskRecipientUid:recipientUid,taskTitle:title,taskDueDate:dueDate||"",taskPriority:priority||"Media",
+    taskReadAt:null
+  });
+  const patch={
+    lastMessageAt:FieldValue.serverTimestamp(),
+    lastMessageText:`📌 Tarea: ${title}`,
+    [`unreadBy.${senderUid}`]:0,
+    [`unreadBy.${recipientUid}`]:FieldValue.increment(1)
+  };
+  await conversationRef.update(patch);
+  return {messageId,conversationId:conversationRef.id,text};
+}
+
 exports.chatEnsureDirect=onCall(async req=>{
   const companyId=String(req.data?.companyId||""),otherUid=String(req.data?.otherUid||"");
   const me=await requireChat(req,companyId,"crear"),other=await access(otherUid);
@@ -269,6 +305,76 @@ exports.chatSendMessage=onCall(async req=>{
   }
   return{ok:true,messageId};
 });
+
+exports.chatAssignTask=onCall(async req=>{
+  if(!req.auth)throw new HttpsError("unauthenticated","Inicia sesión.");
+  const d=req.data||{};
+  const companyId=String(d.companyId||"").trim();
+  const taskId=String(d.taskId||"").trim();
+  const title=String(d.title||"").trim().slice(0,500);
+  const description=String(d.description||"").trim().slice(0,4000);
+  const dueDate=String(d.dueDate||"").trim().slice(0,30);
+  const priority=String(d.priority||"Media").trim().slice(0,40);
+  const recipientUids=[...new Set((Array.isArray(d.recipientUids)?d.recipientUids:[]).map(String).filter(Boolean))].slice(0,50);
+  if(!companyId||!taskId||!title)throw new HttpsError("invalid-argument","Empresa, tarea y título son obligatorios.");
+  if(!recipientUids.length)throw new HttpsError("invalid-argument","Selecciona al menos un usuario.");
+
+  const me=await requireChat(req,companyId,"crear");
+  if(!isAdmin(me)&&!hasPerm(me,"agenda","crear"))throw new HttpsError("permission-denied","No tienes permiso para asignar tareas.");
+
+  const assignmentProfiles={};
+  const readBy={};
+  const results=[];
+
+  for(const recipientUid of recipientUids){
+    const other=await access(recipientUid);
+    if(!other||other.activo===false||!companyAllowed(other,companyId))continue;
+    if(!hasPerm(other,"chat","ver"))continue;
+
+    assignmentProfiles[recipientUid]={
+      uid:recipientUid,
+      name:other.nombre||other.email||"Usuario",
+      email:other.email||"",
+      role:other.rol||""
+    };
+    readBy[recipientUid]=null;
+
+    if(recipientUid===req.auth.uid){
+      results.push({uid:recipientUid,self:true});
+      continue;
+    }
+
+    const convRef=await ensureDirectConversation(companyId,req.auth.uid,recipientUid,me,other);
+    const convSnap=await convRef.get();
+    const sent=await sendTaskChatMessage({
+      conversationRef:convRef,conversation:convSnap.data(),companyId,
+      senderUid:req.auth.uid,senderAccess:me,recipientUid,taskId,title,description,dueDate,priority
+    });
+    results.push({uid:recipientUid,...sent});
+  }
+
+  if(!Object.keys(assignmentProfiles).length)throw new HttpsError("failed-precondition","Ningún usuario seleccionado está habilitado para esta empresa/chat.");
+
+  await db.doc(`agenda/${taskId}`).set({
+    id:taskId,empresa_id:companyId,companyId,
+    titulo:title,descripcion:description,fechaLimite:dueDate,fecha:dueDate,prioridad:priority,
+    asignadoUids:Object.keys(assignmentProfiles),
+    asignados:assignmentProfiles,
+    lecturaPor:readBy,
+    avisoChatEnviadoAt:FieldValue.serverTimestamp(),
+    avisoChatEnviadoPor:req.auth.uid,
+    updatedAt:FieldValue.serverTimestamp()
+  },{merge:true});
+
+  await db.collection("task_audit").add({
+    empresa_id:companyId,taskId,event:"assigned_chat_notice",
+    actorUid:req.auth.uid,recipientUids:Object.keys(assignmentProfiles),
+    createdAt:FieldValue.serverTimestamp()
+  });
+
+  return{ok:true,assigned:Object.values(assignmentProfiles),results};
+});
+
 exports.chatDeleteOwnMessage=onCall(async req=>{
   const cid=String(req.data?.conversationId||""),mid=String(req.data?.messageId||"");
   const {ref,c}=await conversationFor(req.auth?.uid,cid,false);
@@ -286,9 +392,43 @@ exports.chatMarkDelivered=onCall(async req=>{
   return{ok:true};
 });
 exports.chatMarkRead=onCall(async req=>{
-  const cid=String(req.data?.conversationId||""),{ref}=await conversationFor(req.auth?.uid,cid,false);
+  const cid=String(req.data?.conversationId||""),{ref,c,a}=await conversationFor(req.auth?.uid,cid,false);
   await ref.update({[`lastReadAtBy.${req.auth.uid}`]:FieldValue.serverTimestamp(),[`lastDeliveredAtBy.${req.auth.uid}`]:FieldValue.serverTimestamp(),[`unreadBy.${req.auth.uid}`]:0});
-  return{ok:true};
+
+  // Registrar lectura de avisos de tareas incluidos en esta conversación.
+  const recent=await ref.collection("messages").orderBy("createdAt","desc").limit(250).get().catch(()=>null);
+  const taskIds=new Set();
+  if(recent){
+    const batch=db.batch();
+    recent.docs.forEach(ds=>{
+      const m=ds.data()||{};
+      if(m.taskId && m.taskRecipientUid===req.auth.uid && !m.taskReadAt){
+        batch.update(ds.ref,{taskReadAt:FieldValue.serverTimestamp(),taskReadBy:req.auth.uid});
+        taskIds.add(String(m.taskId));
+      }
+    });
+    if(taskIds.size)await batch.commit();
+  }
+  for(const taskId of taskIds){
+    const taskRef=db.doc(`agenda/${taskId}`);
+    await taskRef.set({
+      [`lecturaPor.${req.auth.uid}`]:{
+        uid:req.auth.uid,
+        name:a.nombre||a.email||"Usuario",
+        email:a.email||"",
+        leido:true,
+        leidoAt:FieldValue.serverTimestamp(),
+        conversationId:cid
+      },
+      updatedAt:FieldValue.serverTimestamp()
+    },{merge:true});
+    await db.collection("task_audit").add({
+      empresa_id:c.empresa_id,taskId,event:"task_notice_read",
+      actorUid:req.auth.uid,actorName:a.nombre||a.email||"Usuario",
+      conversationId:cid,createdAt:FieldValue.serverTimestamp()
+    });
+  }
+  return{ok:true,taskReadReceipts:taskIds.size};
 });
 exports.chatTyping=onCall(async req=>{
   const cid=String(req.data?.conversationId||""),typing=!!req.data?.typing,{c,a}=await conversationFor(req.auth?.uid,cid,false);

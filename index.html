@@ -8677,34 +8677,118 @@ window.xiaraCreateTaskFromConference=function(confId){
     </div>
     <div class="card" style="margin-top:16px"><h3>✅ Tareas registradas</h3>
       <table><thead><tr><th>Asignada</th><th>Plazo</th><th>Título / detalle</th><th>Crea</th><th>Responsable</th><th>Lectura</th><th>Estado</th><th>Archivos</th><th>Acciones</th></tr></thead>
-      <tbody>${tasks.map(t=>`<tr><td>${fmt(t.fechaAsignacion||t.fecha||'')}</td><td>${fmt(t.fechaLimite||t.fecha||'')}</td><td><b>${h(t.titulo||'')}</b><br><span class="muted">${h(t.descripcion||'')}</span>${(t.comentarios||[]).slice(0,2).map(c=>`<br><span class="muted"><b>${h(c.autor)}:</b> ${h(c.texto)}</span>`).join('')}</td><td>${h(t.creador||'')}</td><td>${h(t.responsableAsignado||t.responsable||'')}</td><td><span class="badge ${String(t.estadoLectura||'No leído')==='Leído'?'okb':'wb'}">${h(t.estadoLectura||'No leído')}</span></td><td>${h(t.estado||'Pendiente')}</td><td>${(t.archivos||[]).map(f=>`<button class="secondary" onclick="xiaraAgendaOpenFile('${t.id}','${f.id}')">${h(f.name||'Ver')}</button>`).join('')||'<span class="muted">Sin docs</span>'}</td><td><button class="secondary" onclick="xiaraAgendaMarkRead('${t.id}')">Leído</button><button class="secondary" onclick="openAgendaTask('${t.id}')">Editar</button><button class="secondary" onclick="xiaraAgendaAddComment('${t.id}')">Comentar</button><button class="secondary" onclick="xiaraAgendaSetEstado('${t.id}','Terminada')">Terminar</button><button class="secondary" onclick="xiaraAgendaSetEstado('${t.id}','Pendiente de terminar')">Pendiente</button><button class="secondary" onclick="xiaraAgendaSetEstado('${t.id}','Rechazada')">Rechazar</button><button class="secondary" onclick="xiaraAgendaSetEstado('${t.id}','No puede realizar tarea')">No puede</button><button class="secondary" onclick="xiaraAgendaReassign('${t.id}')">Reasignar</button><button class="danger" onclick="deleteAgendaTask('${t.id}')">Eliminar</button></td></tr>`).join('')||'<tr><td colspan="9" class="muted">Sin tareas registradas.</td></tr>'}</tbody></table>
+      <tbody>${tasks.map(t=>`<tr><td>${fmt(t.fechaAsignacion||t.fecha||'')}</td><td>${fmt(t.fechaLimite||t.fecha||'')}</td><td><b>${h(t.titulo||'')}</b><br><span class="muted">${h(t.descripcion||'')}</span>${(t.comentarios||[]).slice(0,2).map(c=>`<br><span class="muted"><b>${h(c.autor)}:</b> ${h(c.texto)}</span>`).join('')}</td><td>${h(t.creador||'')}</td><td>${xiaraTaskAssignedProfiles(t).map(p=>h(p.name||p.email||'Usuario')).join('<br>')}</td><td>${xiaraTaskReadSummary(t)}<br><button class="secondary" onclick="xiaraOpenTaskReadReport('${t.id}')">Informe</button></td><td>${h(t.estado||'Pendiente')}</td><td>${(t.archivos||[]).map(f=>`<button class="secondary" onclick="xiaraAgendaOpenFile('${t.id}','${f.id}')">${h(f.name||'Ver')}</button>`).join('')||'<span class="muted">Sin docs</span>'}</td><td><button class="secondary" onclick="xiaraAgendaMarkRead('${t.id}')">Leído</button><button class="secondary" onclick="openAgendaTask('${t.id}')">Editar</button><button class="secondary" onclick="xiaraAgendaAddComment('${t.id}')">Comentar</button><button class="secondary" onclick="xiaraAgendaSetEstado('${t.id}','Terminada')">Terminar</button><button class="secondary" onclick="xiaraAgendaSetEstado('${t.id}','Pendiente de terminar')">Pendiente</button><button class="secondary" onclick="xiaraAgendaSetEstado('${t.id}','Rechazada')">Rechazar</button><button class="secondary" onclick="xiaraAgendaSetEstado('${t.id}','No puede realizar tarea')">No puede</button><button class="secondary" onclick="xiaraAgendaReassign('${t.id}')">Reasignar</button><button class="danger" onclick="deleteAgendaTask('${t.id}')">Eliminar</button></td></tr>`).join('')||'<tr><td colspan="9" class="muted">Sin tareas registradas.</td></tr>'}</tbody></table>
     </div>
     <div class="card" style="margin-top:16px"><h3>📅 Reuniones agendadas desde Conferencia</h3>
       ${confs.length?confs.map(c=>`<div class="agenda-task-card"><b>${h(c.titulo||'Conferencia')}</b><br><span class="muted">${h(c.fecha||'')} ${h(c.hora||'')} · ${h(c.tipo||'Reunión interna')} · ${h(c.estado||'Programada')}</span><p>${h(c.descripcion||'Sin orden del día.')}</p><button onclick="xiaraOpenConferenceRoom('${c.id}')">Entrar a sala</button><button class="secondary" onclick="xiaraCreateTaskFromConference('${c.id}')">Crear tarea/orden del día</button><button class="secondary" onclick="xiaraCopyConferenceLink('${c.id}')">Copiar enlace</button></div>`).join(''):'<p class="muted">No hay conferencias registradas.</p>'}
     </div>`;
   };
+  function xiaraTaskAssignedProfiles(t){
+    const arr=Array.isArray(t.asignadoUids)?t.asignadoUids:[];
+    const profiles=t.asignados||{};
+    if(arr.length)return arr.map(uid=>profiles[uid]||{uid,name:uid});
+    const legacy=t.responsableAsignado||t.responsable||'';
+    return legacy?[{uid:'',name:legacy}]:[];
+  }
+  function xiaraTaskReadSummary(t){
+    const assigned=xiaraTaskAssignedProfiles(t);
+    const reads=t.lecturaPor||{};
+    if(!assigned.length)return '<span class="muted">Sin asignar</span>';
+    return assigned.map(p=>{
+      const r=p.uid?reads[p.uid]:null;
+      return `<div style="margin:2px 0">${r?.leido?'✅':'⏳'} <b>${h(p.name||p.email||'Usuario')}</b> — ${r?.leido?`Leído ${h(xiaraTimestampLabel(r.leidoAt))}`:'No leído'}</div>`;
+    }).join('');
+  }
+  function xiaraTimestampLabel(v){
+    try{
+      const d=v?.toDate?v.toDate():new Date(v||'');
+      if(!d||!Number.isFinite(d.getTime()))return '';
+      return d.toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    }catch(_e){return '';}
+  }
+  async function xiaraTaskLoadUsers(t){
+    const w=document.getElementById('ag_user_picker');if(!w)return;
+    w.innerHTML='<span class="muted">Cargando usuarios…</span>';
+    try{
+      const users=await window.XIARA_CHAT?.getAssignableUsers?.();
+      if(!users?.length){w.innerHTML='<span class="muted">No hay usuarios disponibles.</span>';return;}
+      const selected=new Set(Array.isArray(t.asignadoUids)?t.asignadoUids:[]);
+      w.innerHTML=users.map(u=>`<label style="display:flex;align-items:center;gap:8px;padding:7px;border-bottom:1px solid #eef2f7">
+        <input class="ag-assignee-check" type="checkbox" value="${h(u.uid)}" ${selected.has(u.uid)?'checked':''}>
+        <span><b>${h(u.name||u.email||'Usuario')}</b><br><span class="muted">${h(u.email||'')} ${u.role?'· '+h(u.role):''}</span></span>
+      </label>`).join('');
+    }catch(e){
+      console.error('task users',e);
+      w.innerHTML=`<span class="muted">No se pudieron cargar usuarios: ${h(e.message||e)}</span>`;
+    }
+  }
+  window.xiaraOpenTaskReadReport=function(id){
+    const t=(db.agenda||[]).find(x=>x.id===id);if(!t)return alert('Tarea no encontrada.');
+    const assigned=xiaraTaskAssignedProfiles(t),reads=t.lecturaPor||{};
+    modal(`<button class="xiara-modal-x" onclick="closeModal()">✕</button><h2>Informe de lectura — ${h(t.titulo||'Tarea')}</h2>
+      <div class="card"><p><b>Asignada:</b> ${h(t.fechaAsignacion||'')} · <b>Plazo:</b> ${h(t.fechaLimite||'')}</p>
+      <table><thead><tr><th>Usuario</th><th>Email</th><th>Estado aviso</th><th>Fecha de lectura</th></tr></thead>
+      <tbody>${assigned.map(p=>{const r=p.uid?reads[p.uid]:null;return `<tr><td>${h(p.name||'')}</td><td>${h(p.email||'')}</td><td>${r?.leido?'✅ Leído':'⏳ No leído'}</td><td>${r?.leido?h(xiaraTimestampLabel(r.leidoAt)):'-'}</td></tr>`}).join('')||'<tr><td colspan="4">Sin usuarios asignados.</td></tr>'}</tbody></table></div>`);
+  };
   window.openAgendaTask=function(id=''){
-    ensureAgendaArrays(); const t=db.agenda.find(x=>x.id===id)||{id:uid('AGE'),companyId:activeCompany,fechaAsignacion:today(),fechaLimite:today(),prioridad:'Media',estado:'Pendiente',estadoLectura:'No leído',creador:currentUserName(),responsableAsignado:'Tanya',archivos:[],comentarios:[]};
+    ensureAgendaArrays();
+    const t=db.agenda.find(x=>x.id===id)||{id:uid('AGE'),companyId:activeCompany,fechaAsignacion:today(),fechaLimite:today(),prioridad:'Media',estado:'Pendiente',creador:currentUserName(),asignadoUids:[],asignados:{},lecturaPor:{},archivos:[],comentarios:[]};
     modal(`<button class="xiara-modal-x" onclick="closeModal()">✕</button><h2>${id?'Editar':'Nueva'} tarea</h2>
     <div class="form">
-      <div class="row"><label>Creada por<select id="ag_creador">${xiaraTaskCreatorOptions(t.creador)}</select></label><label>Encargado / responsable<select id="ag_asignado">${xiaraTaskAssigneeOptions(t.responsableAsignado||t.responsable)}</select></label></div>
+      <label>Creada por<select id="ag_creador">${xiaraTaskCreatorOptions(t.creador)}</select></label>
+      <label>Asignar a uno o varios usuarios
+        <details open style="border:1px solid #dbe3ef;border-radius:12px;padding:10px;margin-top:5px">
+          <summary style="cursor:pointer;font-weight:900">👥 Seleccionar usuarios</summary>
+          <div id="ag_user_picker" style="max-height:230px;overflow:auto;margin-top:8px">Cargando…</div>
+        </details>
+      </label>
       <div class="row"><label>Fecha asignación<input id="ag_fecha_asignacion" type="date" value="${h(t.fechaAsignacion||t.fecha||today())}"></label><label>Fecha límite / plazo<input id="ag_fecha_limite" type="date" value="${h(t.fechaLimite||t.fecha||today())}"></label></div>
       <label>Título<input id="ag_titulo" value="${h(t.titulo||'')}"></label>
       <div class="row"><label>Prioridad<select id="ag_prio"><option ${t.prioridad==='Baja'?'selected':''}>Baja</option><option ${!t.prioridad||t.prioridad==='Media'?'selected':''}>Media</option><option ${t.prioridad==='Alta'?'selected':''}>Alta</option><option ${t.prioridad==='Urgente'?'selected':''}>Urgente</option></select></label><label>Estado<select id="ag_estado"><option ${!t.estado||t.estado==='Pendiente'?'selected':''}>Pendiente</option><option ${t.estado==='En curso'?'selected':''}>En curso</option><option ${t.estado==='Pendiente de terminar'?'selected':''}>Pendiente de terminar</option><option ${t.estado==='Terminada'?'selected':''}>Terminada</option><option ${t.estado==='Rechazada'?'selected':''}>Rechazada</option><option ${t.estado==='No puede realizar tarea'?'selected':''}>No puede realizar tarea</option></select></label></div>
       <textarea id="ag_desc" placeholder="Descripción, orden del día, instrucciones...">${h(t.descripcion||'')}</textarea>
       <label>Subir documento / PDF / JPG / Excel / CSV<input id="ag_file" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.csv,.txt"></label>
       <div class="card" style="box-shadow:none"><b>Archivos actuales</b><br>${(t.archivos||[]).map(f=>`<button type="button" class="secondary" onclick="xiaraAgendaOpenFile('${t.id}','${f.id}')">${h(f.name)}</button>`).join('')||'<span class="muted">Sin archivos.</span>'}</div>
-      <button onclick="saveAgendaTask('${t.id}')">Guardar tarea y aviso</button>
+      ${id?`<div class="card" style="box-shadow:none"><b>Lectura del aviso</b>${xiaraTaskReadSummary(t)}<br><button type="button" class="secondary" onclick="xiaraOpenTaskReadReport('${t.id}')">Ver informe de lectura</button></div>`:''}
+      <button onclick="saveAgendaTask('${t.id}')">Guardar tarea y enviar aviso por Chat</button>
     </div>`);
+    setTimeout(()=>xiaraTaskLoadUsers(t),50);
   };
   window.saveAgendaTask=async function(id){
-    ensureAgendaArrays(); let t=db.agenda.find(x=>x.id===id); const isNew=!t; if(!t){t={id,companyId:activeCompany,archivos:[],comentarios:[]};db.agenda.push(t);}
-    t.companyId=activeCompany; t.empresa_id=activeCompany;
-    t.fecha=val('ag_fecha_limite'); t.fechaAsignacion=val('ag_fecha_asignacion'); t.fechaLimite=val('ag_fecha_limite'); t.titulo=val('ag_titulo'); t.creador=val('ag_creador'); t.responsableAsignado=val('ag_asignado'); t.responsable=t.responsableAsignado; t.prioridad=val('ag_prio'); t.estado=val('ag_estado'); t.descripcion=val('ag_desc');
-    if(isNew || t.ultimoResponsableAvisado!==t.responsableAsignado){ t.estadoLectura='No leído'; t.leidoPor={}; t.ultimoResponsableAvisado=t.responsableAsignado; db.taskAvisos.unshift({id:uid('AVISO'),empresa_id:activeCompany,tareaId:id,usuario:t.responsableAsignado,estado:'No leído',fecha:now(),texto:'Nueva tarea asignada: '+(t.titulo||'')}); }
-    const file=document.getElementById('ag_file')?.files?.[0]; if(file){ const f=await agendaReadFile(file); if(f){t.archivos=t.archivos||[]; t.archivos.unshift(f);} }
-    t.historial=t.historial||[]; t.historial.unshift({fecha:now(),texto:(isNew?'Creada':'Actualizada')+' por '+currentUserName()});
-    localSave(); closeModal(); renderAll();
+    ensureAgendaArrays();
+    let t=db.agenda.find(x=>x.id===id);const isNew=!t;
+    if(!t){t={id,companyId:activeCompany,archivos:[],comentarios:[],lecturaPor:{}};db.agenda.push(t);}
+    const recipientUids=[...document.querySelectorAll('.ag-assignee-check:checked')].map(x=>x.value).filter(Boolean);
+    if(!recipientUids.length)return alert('Selecciona al menos un usuario para asignar la tarea.');
+    if(!val('ag_titulo').trim())return alert('Escribe un título para la tarea.');
+
+    t.companyId=activeCompany;t.empresa_id=activeCompany;
+    t.fecha=val('ag_fecha_limite');t.fechaAsignacion=val('ag_fecha_asignacion');t.fechaLimite=val('ag_fecha_limite');
+    t.titulo=val('ag_titulo');t.creador=val('ag_creador');t.prioridad=val('ag_prio');t.estado=val('ag_estado');t.descripcion=val('ag_desc');
+
+    const file=document.getElementById('ag_file')?.files?.[0];
+    if(file){const f=await agendaReadFile(file);if(f){t.archivos=t.archivos||[];t.archivos.unshift(f);}}
+
+    try{
+      const out=await window.XIARA_CHAT?.assignTask?.({
+        taskId:id,title:t.titulo,description:t.descripcion,dueDate:t.fechaLimite,priority:t.prioridad,recipientUids
+      });
+      if(!out?.ok)throw new Error('No se recibió confirmación del Chat.');
+      t.asignadoUids=(out.assigned||[]).map(x=>x.uid);
+      t.asignados=Object.fromEntries((out.assigned||[]).map(x=>[x.uid,x]));
+      t.responsableAsignado=(out.assigned||[]).map(x=>x.name||x.email).join(', ');
+      t.responsable=t.responsableAsignado;
+      t.lecturaPor=t.lecturaPor||{};
+      t.asignadoUids.forEach(uid=>{if(!(uid in t.lecturaPor))t.lecturaPor[uid]=null;});
+      t.avisoChatEnviadoAt=now();
+      t.historial=t.historial||[];
+      t.historial.unshift({fecha:now(),texto:`${isNew?'Creada':'Actualizada'} por ${currentUserName()} · Aviso Chat enviado a ${(out.assigned||[]).map(x=>x.name||x.email).join(', ')}`});
+      try{await saveCloud('agenda',t);}catch(e){console.warn('saveCloud agenda',e);}
+      localSave();closeModal();renderAll();
+      alert(`Tarea guardada y aviso enviado por Chat a ${t.asignadoUids.length} usuario(s).`);
+    }catch(e){
+      console.error('XIARA task chat assign',e);
+      alert('La tarea NO se guardó como asignada porque falló el aviso de Chat:\\n'+(e.message||e));
+    }
   };
   const oldRenderFirma=window.renderFirmaDigitalPro;
   window.renderFirmaDigitalPro=function(){

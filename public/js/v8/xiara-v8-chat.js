@@ -52,6 +52,35 @@ function playSound(){
     o.start();setTimeout(()=>{g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.12);o.stop(ac.currentTime+.13);},70);
   }catch(_e){}
 }
+
+function chatModal(html){
+  const box=document.getElementById('modalBox');
+  const ov=document.getElementById('modal');
+  if(box && ov){
+    box.innerHTML=html;
+    ov.classList.add('open');
+    return true;
+  }
+
+  // Fallback modal propio de Chat si el modal histórico no está disponible.
+  let shell=document.getElementById('xiaraChatModalFallback');
+  if(!shell){
+    shell=document.createElement('div');
+    shell.id='xiaraChatModalFallback';
+    shell.style.cssText='position:fixed;inset:0;z-index:999999;background:#0008;display:flex;align-items:center;justify-content:center;padding:20px';
+    shell.innerHTML='<div id="xiaraChatModalFallbackBox" style="background:#fff;width:min(760px,96vw);max-height:90vh;overflow:auto;border-radius:16px;padding:18px;box-shadow:0 20px 60px #0006"></div>';
+    shell.addEventListener('click',e=>{if(e.target===shell)shell.remove();});
+    document.body.appendChild(shell);
+  }
+  const b=document.getElementById('xiaraChatModalFallbackBox');
+  if(b)b.innerHTML=html;
+  return true;
+}
+function chatCloseModal(){
+  try{window.closeModal?.();}catch(_e){}
+  document.getElementById('xiaraChatModalFallback')?.remove();
+}
+
 function toast(text){
   let d=$('xiaraChatToast');
   if(!d){
@@ -139,10 +168,18 @@ function renderShell(){
 function conversationName(c){
   if(c.name)return c.name;
   if(c.type==='direct'){
-    const other=(c.memberProfiles||[]).find(x=>x.uid!==uid());
+    const profiles=Array.isArray(c.memberProfiles)
+      ? c.memberProfiles
+      : Object.values(c.memberProfiles||{});
+    const other=profiles.find(x=>x?.uid!==uid());
     return other?.name||other?.email||'Chat directo';
   }
   return c.area?`Área ${c.area}`:'Grupo';
+}
+function memberProfilesArray(c){
+  return Array.isArray(c?.memberProfiles)
+    ? c.memberProfiles
+    : Object.values(c?.memberProfiles||{});
 }
 function convOtherPresence(c){
   if(c.type!=='direct')return null;
@@ -347,11 +384,59 @@ async function newDirect(){
   const r=await call('chatListPeers',{companyId:state.companyId});
   state.peers=r?.users||[];
   if(!state.peers.length)return alert('No hay otros usuarios disponibles en esta empresa.');
-  const list=state.peers.map((u,i)=>`${i+1}. ${u.name||u.email} — ${u.rol||''}`).join('\n');
-  const n=Number(prompt('Elige usuario por número:\n\n'+list));
-  const peer=state.peers[n-1];if(!peer)return;
-  const out=await call('chatEnsureDirect',{companyId:state.companyId,otherUid:peer.uid});
-  await openConversation(out.conversationId);
+
+  const rows=state.peers
+    .slice()
+    .sort((a,b)=>{
+      const pa=state.presence.get(a.uid),pb=state.presence.get(b.uid);
+      const oa=pa&&isOnline(pa)?1:0,ob=pb&&isOnline(pb)?1:0;
+      if(oa!==ob)return ob-oa;
+      return String(a.name||a.email||'').localeCompare(String(b.name||b.email||''),'es');
+    });
+
+  chatModal(`<h2>Nuevo chat directo</h2>
+    <div class="form">
+      <input id="xchatPeerSearch" placeholder="Buscar por nombre o email..." oninput="xiaraChatRenderPeerPicker()">
+      <div class="muted" style="margin:4px 0 10px">Selecciona a la persona. Puedes abrir el chat aunque esté desconectada; leerá los mensajes cuando vuelva a entrar.</div>
+      <div id="xchatPeerPicker" style="max-height:55vh;overflow:auto;border:1px solid #e5e7eb;border-radius:12px"></div>
+      <button class="secondary" onclick="xiaraChatCloseModal()">Cancelar</button>
+    </div>`);
+
+  window.XIARA_CHAT_PEER_PICKER=rows;
+  renderPeerPicker();
+}
+function renderPeerPicker(){
+  const w=$('xchatPeerPicker');if(!w)return;
+  const q=($('xchatPeerSearch')?.value||'').trim().toLowerCase();
+  const rows=(window.XIARA_CHAT_PEER_PICKER||[]).filter(u=>
+    String(u.name||'').toLowerCase().includes(q) ||
+    String(u.email||'').toLowerCase().includes(q) ||
+    String(u.rol||'').toLowerCase().includes(q)
+  );
+  w.innerHTML=rows.map(u=>{
+    const p=state.presence.get(u.uid);
+    const online=!!p&&isOnline(p);
+    return `<button type="button" onclick="xiaraChatChoosePeer('${esc(u.uid)}')"
+      style="width:100%;display:flex;align-items:center;gap:10px;padding:12px;border:0;border-bottom:1px solid #eef2f7;background:#fff;text-align:left;cursor:pointer">
+      <span class="xchat-dot ${online?'online':''}"></span>
+      <span style="flex:1;min-width:0">
+        <b style="display:block">${esc(u.name||u.email||'Usuario')}</b>
+        <span class="muted" style="font-size:12px">${esc(u.email||'')} ${u.rol?'— '+esc(u.rol):''}</span>
+      </span>
+      <span class="xchat-topbadge">${online?'Disponible':'Desconectado'}</span>
+    </button>`;
+  }).join('')||'<div class="muted" style="padding:15px">No hay coincidencias.</div>';
+}
+async function choosePeer(peerUid){
+  const peer=state.peers.find(x=>x.uid===peerUid);
+  if(!peer)return alert('Usuario no encontrado.');
+  try{
+    const out=await call('chatEnsureDirect',{companyId:state.companyId,otherUid:peer.uid});
+    chatCloseModal();
+    await openConversation(out.conversationId);
+  }catch(e){
+    alert('No se pudo abrir el chat:\n'+(e.message||e));
+  }
 }
 async function newArea(){
   const areas=[
@@ -436,9 +521,12 @@ async function boot(){
     });
   }catch(e){console.error('XIARA Chat init',e);}
 }
+window.xiaraChatCloseModal=chatCloseModal;
 window.xiaraChatRenderConversations=renderConversations;
 window.xiaraChatOpen=openConversation;
 window.xiaraChatNewDirect=newDirect;
+window.xiaraChatRenderPeerPicker=renderPeerPicker;
+window.xiaraChatChoosePeer=choosePeer;
 window.xiaraChatNewArea=newArea;
 window.xiaraChatSend=send;
 window.xiaraChatTyping=typing;
@@ -451,6 +539,33 @@ window.xiaraChatSearchMessages=()=>{state.search=($('xchatMsgSearch')?.value||''
 window.xiaraChatEnablePush=enablePush;
 window.xiaraChatAdminSettings=adminSettings;
 window.xiaraChatValidate=validate;
-window.XIARA_CHAT={version:'8.0.0-enterprise-rc1',state,open:openConversation,validate};
+
+async function taskAssignableUsers(){
+  if(!state.user||!state.companyId)throw new Error('Chat todavía no está listo.');
+  const r=await call('chatListPeers',{companyId:state.companyId});
+  const peers=r?.users||[];
+  const me={
+    uid:state.user.uid,
+    name:state.profile?.nombre||state.user.displayName||state.user.email||'Usuario',
+    email:state.user.email||'',
+    role:state.profile?.rol||''
+  };
+  return [me,...peers].filter((x,i,a)=>x?.uid&&a.findIndex(y=>y.uid===x.uid)===i)
+    .sort((a,b)=>String(a.name||a.email||'').localeCompare(String(b.name||b.email||''),'es'));
+}
+async function assignTaskNotification(payload){
+  if(!state.user||!state.companyId)throw new Error('Chat todavía no está listo.');
+  return await call('chatAssignTask',{
+    companyId:state.companyId,
+    taskId:String(payload?.taskId||''),
+    title:String(payload?.title||''),
+    description:String(payload?.description||''),
+    dueDate:String(payload?.dueDate||''),
+    priority:String(payload?.priority||'Media'),
+    recipientUids:Array.isArray(payload?.recipientUids)?payload.recipientUids:[]
+  });
+}
+
+window.XIARA_CHAT={version:'8.1.6-task-notices',state,open:openConversation,validate,getAssignableUsers:taskAssignableUsers,assignTask:assignTaskNotification};
 window.addEventListener('DOMContentLoaded',()=>{setTimeout(boot,200);});
 })();
