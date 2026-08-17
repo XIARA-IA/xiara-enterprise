@@ -1,13 +1,73 @@
 rules_version = '2';
 service cloud.firestore {
-  match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
+ match /databases/{database}/documents {
+  function signedIn(){return request.auth!=null;}
+  function ad(){return get(/databases/$(database)/documents/access/$(request.auth.uid));}
+  function active(){return signedIn()&&ad().data.activo==true;}
+  function admin(){return active()&&ad().data.rol=='Administrador';}
+  function companyAllowed(c){return admin()||(active()&&c in ad().data.empresas);}
+  function perm(m,x){return admin()||(active()&&ad().data.permisos[m][x]==true);}
+  function co(d){return ('empresa_id' in d)?d.empresa_id:(('empresaId' in d)?d.empresaId:null);}
+  function norm(m){return (m=='laborales'||m=='legal')?'legal':(m=='finance'||m=='finanzas')?'finanzas':(m=='documentos'||m=='documental')?'documental':(m=='firmaDigital'||m=='firma')?'firma':m;}
+  function dm(d){return ('modulo' in d)?norm(d.modulo):'documental';}
+  function rd(d,m){return companyAllowed(co(d))&&perm(m,'ver');}
+  function cr(d,m){return companyAllowed(co(d))&&perm(m,'crear');}
+  function up(o,n,m){return co(o)==co(n)&&companyAllowed(co(o))&&perm(m,'editar');}
+  function de(d,m){return companyAllowed(co(d))&&perm(m,'borrar');}
+  function chatMember(d){return active()&&request.auth.uid in d.memberUids&&companyAllowed(d.empresa_id)&&perm('chat','ver');}
+  function chatAudit(d){return admin()&&get(/databases/$(database)/documents/chat_settings/$(d.empresa_id)).data.auditAdmin==true;}
 
-    // Reglas base V2.
-    // Producción: vincular Firebase Auth UID con usuarios/{uid}
-    // y validar empresa_id estrictamente.
-    match /{document=**} {
-      allow read, write: if signedIn();
+  match /access/{uid}{allow read:if signedIn()&&(request.auth.uid==uid||admin());allow write:if false;}
+  match /empresas/{id}{allow read:if companyAllowed(id);allow create,update,delete:if admin();}
+  match /usuarios/{id}{allow read:if admin();allow write:if false;}
+
+  match /notificaciones/{id}{allow read:if rd(resource.data,'notificaciones');allow create:if cr(request.resource.data,'notificaciones');allow update:if up(resource.data,request.resource.data,'notificaciones');allow delete:if de(resource.data,'notificaciones');}
+  match /laborales/{id}{allow read:if rd(resource.data,'legal');allow create:if cr(request.resource.data,'legal');allow update:if up(resource.data,request.resource.data,'legal');allow delete:if de(resource.data,'legal');}
+  match /casosJudiciales/{id}{allow read:if rd(resource.data,'legal');allow create:if cr(request.resource.data,'legal');allow update:if up(resource.data,request.resource.data,'legal');allow delete:if de(resource.data,'legal');}
+  match /conciliaciones/{id}{allow read:if rd(resource.data,'legal');allow create:if cr(request.resource.data,'legal');allow update:if up(resource.data,request.resource.data,'legal');allow delete:if de(resource.data,'legal');}
+  match /jurisprudencia/{id}{allow read:if rd(resource.data,'legal');allow create:if cr(request.resource.data,'legal');allow update:if up(resource.data,request.resource.data,'legal');allow delete:if de(resource.data,'legal');}
+  match /plantillas/{id}{allow read:if rd(resource.data,'legal');allow create:if cr(request.resource.data,'legal');allow update:if up(resource.data,request.resource.data,'legal');allow delete:if de(resource.data,'legal');}
+  match /finanzas/{id}{allow read:if rd(resource.data,'finanzas');allow create:if cr(request.resource.data,'finanzas');allow update:if up(resource.data,request.resource.data,'finanzas');allow delete:if de(resource.data,'finanzas');}
+  match /facturas/{id}{allow read:if companyAllowed(co(resource.data))&&(perm('finanzas','ver')||perm('fiscalidad','ver'));allow create:if companyAllowed(co(request.resource.data))&&(perm('finanzas','crear')||perm('fiscalidad','crear'));allow update:if co(resource.data)==co(request.resource.data)&&companyAllowed(co(resource.data))&&(perm('finanzas','editar')||perm('fiscalidad','editar'));allow delete:if companyAllowed(co(resource.data))&&(perm('finanzas','borrar')||perm('fiscalidad','borrar'));}
+  match /modelos/{id}{allow read:if rd(resource.data,'fiscalidad');allow create:if cr(request.resource.data,'fiscalidad');allow update:if up(resource.data,request.resource.data,'fiscalidad');allow delete:if de(resource.data,'fiscalidad');}
+  match /cartasPago/{id}{allow read:if rd(resource.data,'finanzas');allow create:if cr(request.resource.data,'finanzas');allow update:if up(resource.data,request.resource.data,'finanzas');allow delete:if de(resource.data,'finanzas');}
+  match /compliance/{id}{allow read:if rd(resource.data,'compliance');allow create:if cr(request.resource.data,'compliance');allow update:if up(resource.data,request.resource.data,'compliance');allow delete:if de(resource.data,'compliance');}
+  match /rrhh/{id}{allow read:if rd(resource.data,'rrhh');allow create:if cr(request.resource.data,'rrhh');allow update:if up(resource.data,request.resource.data,'rrhh');allow delete:if de(resource.data,'rrhh');}
+  match /centrosTrabajo/{id}{allow read:if rd(resource.data,'rrhh');allow create:if cr(request.resource.data,'rrhh');allow update:if up(resource.data,request.resource.data,'rrhh');allow delete:if de(resource.data,'rrhh');}
+  match /cargasSociales/{id}{allow read:if rd(resource.data,'rrhh');allow create:if cr(request.resource.data,'rrhh');allow update:if up(resource.data,request.resource.data,'rrhh');allow delete:if de(resource.data,'rrhh');}
+  match /socios/{id}{allow read:if rd(resource.data,'socios');allow create:if cr(request.resource.data,'socios');allow update:if up(resource.data,request.resource.data,'socios');allow delete:if de(resource.data,'socios');}
+  match /documentos/{id}{allow read:if companyAllowed(co(resource.data))&&perm(dm(resource.data),'ver');allow create:if companyAllowed(co(request.resource.data))&&(perm(dm(request.resource.data),'subir')||perm(dm(request.resource.data),'crear'));allow update:if co(resource.data)==co(request.resource.data)&&companyAllowed(co(resource.data))&&perm(dm(resource.data),'editar');allow delete:if companyAllowed(co(resource.data))&&perm(dm(resource.data),'borrar');}
+  match /audit/{id}{allow read:if admin()||perm('config','ver');allow create:if companyAllowed(co(request.resource.data));allow update,delete:if admin();}
+  match /agenda/{id}{allow read:if rd(resource.data,'agenda');allow create:if cr(request.resource.data,'agenda');allow update:if up(resource.data,request.resource.data,'agenda');allow delete:if de(resource.data,'agenda');}
+  match /conferencia/{id}{allow read:if rd(resource.data,'conferencia');allow create:if cr(request.resource.data,'conferencia');allow update:if up(resource.data,request.resource.data,'conferencia');allow delete:if de(resource.data,'conferencia');}
+  match /firma/{id}{allow read:if rd(resource.data,'firma');allow create:if cr(request.resource.data,'firma');allow update:if up(resource.data,request.resource.data,'firma');allow delete:if de(resource.data,'firma');}
+  match /informes/{id}{allow read:if rd(resource.data,'informes');allow create:if cr(request.resource.data,'informes');allow update:if up(resource.data,request.resource.data,'informes');allow delete:if de(resource.data,'informes');}
+
+  match /chat_conversations/{cid}{
+    allow read:if chatMember(resource.data)||chatAudit(resource.data);
+    allow create,update,delete:if false;
+    match /messages/{mid}{
+      allow read:if chatMember(get(/databases/$(database)/documents/chat_conversations/$(cid)).data)||chatAudit(get(/databases/$(database)/documents/chat_conversations/$(cid)).data);
+      allow write:if false;
     }
   }
+  match /chat_presence/{uid}{
+    allow read:if active()&&companyAllowed(resource.data.empresa_id)&&perm('chat','ver');
+    allow create:if signedIn()&&request.auth.uid==uid&&companyAllowed(request.resource.data.empresa_id)&&perm('chat','ver');
+    allow update:if signedIn()&&request.auth.uid==uid&&resource.data.empresa_id==request.resource.data.empresa_id&&companyAllowed(resource.data.empresa_id)&&perm('chat','ver');
+    allow delete:if signedIn()&&request.auth.uid==uid;
+  }
+  match /chat_typing/{id}{
+    allow read:if active()&&perm('chat','ver')&&companyAllowed(resource.data.empresa_id);
+    allow write:if false;
+  }
+  match /chat_settings/{companyId}{
+    allow read:if active()&&companyAllowed(companyId)&&perm('chat','ver');
+    allow write:if false;
+  }
+  match /chat_devices/{id}{allow read,write:if false;}
+  match /chat_audit/{id}{allow read:if admin()&&companyAllowed(resource.data.empresa_id);allow write:if false;}
+
+  match /{document=**}{allow read,write:if false;}
+ }
 }

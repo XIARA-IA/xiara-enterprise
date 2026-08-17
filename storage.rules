@@ -1,47 +1,33 @@
 rules_version = '2';
-
 service firebase.storage {
-  match /b/{bucket}/o {
-
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function accessPath() {
-      return /databases/(default)/documents/access/$(request.auth.uid);
-    }
-
-    function hasEmpresaAccess(empresaId) {
-      return signedIn()
-        && firestore.exists(accessPath())
-        && firestore.get(accessPath()).data.activo == true
-        && empresaId in firestore.get(accessPath()).data.empresas;
-    }
-
-    function validUpload() {
-      return request.resource != null
-        && request.resource.size <= 50 * 1024 * 1024
-        && (
-          request.resource.contentType == 'application/pdf'
-          || request.resource.contentType.matches('image/.*')
-          || request.resource.contentType == 'application/msword'
-          || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-          || request.resource.contentType == 'application/vnd.ms-excel'
-          || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-          || request.resource.contentType == 'text/csv'
-          || request.resource.contentType == 'text/plain'
-          || request.resource.contentType == 'application/octet-stream'
-        );
-    }
-
-    match /empresas/{empresaId}/{allPaths=**} {
-      allow read: if hasEmpresaAccess(empresaId);
-
-      allow create, update: if hasEmpresaAccess(empresaId)
-        && validUpload();
-
-      allow delete: if hasEmpresaAccess(empresaId)
-        && firestore.get(accessPath()).data.rol == 'Administrador';
-    }
+ match /b/{bucket}/o {
+  function signedIn(){return request.auth!=null;}
+  function a(){return firestore.get(/databases/(default)/documents/access/$(request.auth.uid));}
+  function active(){return signedIn()&&a().data.activo==true;}
+  function admin(){return active()&&a().data.rol=='Administrador';}
+  function companyAllowed(c){return admin()||(active()&&c in a().data.empresas);}
+  function norm(m){return (m=='laborales'||m=='legal')?'legal':(m=='finance'||m=='finanzas')?'finanzas':(m=='documentos'||m=='documental')?'documental':(m=='firmaDigital'||m=='firma')?'firma':m;}
+  function perm(m,x){return admin()||(active()&&a().data.permisos[norm(m)][x]==true);}
+  function valid(){return request.resource!=null&&request.resource.size<50*1024*1024&&request.resource.contentType!=null&&(request.resource.contentType.matches('application/pdf')||request.resource.contentType.matches('image/.*')||request.resource.contentType.matches('text/.*')||request.resource.contentType.matches('application/msword')||request.resource.contentType.matches('application/vnd.openxmlformats-officedocument.*')||request.resource.contentType.matches('application/vnd.ms-excel')||request.resource.contentType.matches('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'));}
+  function chatMember(cid,companyId){
+    return active()&&companyAllowed(companyId)&&perm('chat','ver')&&request.auth.uid in firestore.get(/databases/(default)/documents/chat_conversations/$(cid)).data.memberUids;
   }
+  function validChat(){return request.resource!=null&&request.resource.size<25*1024*1024&&request.resource.contentType!=null&&(request.resource.contentType.matches('application/pdf')||request.resource.contentType.matches('image/jpeg')||request.resource.contentType.matches('image/png')||request.resource.contentType.matches('image/webp'));}
+
+  match /empresas/{empresaId}/{modulo}/{entidadTipo}/{entidadId}/{categoria}/{fileName}{
+   allow read:if companyAllowed(empresaId)&&(perm(modulo,'ver')||perm(modulo,'descargar'));
+   allow create:if companyAllowed(empresaId)&&perm(modulo,'subir')&&valid();
+   allow update:if companyAllowed(empresaId)&&(perm(modulo,'editar')||perm(modulo,'subir'))&&valid();
+   allow delete:if companyAllowed(empresaId)&&perm(modulo,'borrar');
+  }
+
+  match /chat/{empresaId}/{conversationId}/{messageId}/{fileName}{
+    allow read:if chatMember(conversationId,empresaId)&&(perm('chat','ver')||perm('chat','descargar'));
+    allow create:if chatMember(conversationId,empresaId)&&perm('chat','subir')&&validChat();
+    allow update:if false;
+    allow delete:if false; // borrado por Cloud Function al eliminar mensaje propio
+  }
+
+  match /{allPaths=**}{allow read,write:if false;}
+ }
 }
